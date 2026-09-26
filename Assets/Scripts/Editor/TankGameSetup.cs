@@ -103,6 +103,14 @@ public static class TankGameSetup
     const string DomeSpritePath = "Assets/Sprites/TurretDome.png";
     const string BarrelSpritePath = "Assets/Sprites/Barrel.png";
 
+    // Draw order for tank parts (higher = nearer the camera). The turret base sits
+    // down inside the hull and is hidden behind it; the barrel emerges from behind
+    // the turret. Future weapons can slot in above (drawn ahead of the tank) or
+    // below (drawn behind it) these values.
+    const int SortBarrel = 2;
+    const int SortDome = 3;
+    const int SortHull = 4;
+
     /// <summary>
     /// Makes sure a tank PNG imports as one single Sprite so LoadAssetAtPath finds it.
     /// If the importer ever ends up in Multiple (sprite sheet) mode, Unity looks for a
@@ -167,19 +175,21 @@ public static class TankGameSetup
         var hullSR = hull.AddComponent<SpriteRenderer>();
         hullSR.sprite = hullSpr;
         hullSR.color = color;
-        hullSR.sortingOrder = 2;
+        hullSR.sortingOrder = SortHull;
         tank.hull = hull.transform;
         tank.hullScale = hullK;
 
         var dome = new GameObject("Dome");
         dome.transform.SetParent(visual.transform, false);
         const float domeS = 0.08060f; // dome content 1985px wide -> 1.6 world units
-        dome.transform.localPosition = new Vector3(-0.0089f, 0.8378f, 0f);
+        // Dome base sits at world y=0.35, sunk 0.27 into the hull (hull top is 0.624)
+        // so the turret's bottom edge hides behind the hull body.
+        dome.transform.localPosition = new Vector3(-0.0089f, 0.6377f, 0f);
         dome.transform.localScale = new Vector3(domeS, domeS, 1f);
         var domeSR = dome.AddComponent<SpriteRenderer>();
         domeSR.sprite = domeSpr;
         domeSR.color = color;
-        domeSR.sortingOrder = 4;
+        domeSR.sortingOrder = SortDome;
 
         var pivot = new GameObject("TurretPivot");
         pivot.transform.SetParent(visual.transform, false);
@@ -195,7 +205,7 @@ public static class TankGameSetup
         var bsr = barrel.AddComponent<SpriteRenderer>();
         bsr.sprite = barrelSpr;
         bsr.color = new Color(0.2f, 0.2f, 0.22f);
-        bsr.sortingOrder = 3;
+        bsr.sortingOrder = SortBarrel;
 
         var muzzle = new GameObject("Muzzle");
         muzzle.transform.SetParent(pivot.transform, false);
