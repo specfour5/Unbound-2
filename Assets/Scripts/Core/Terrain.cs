@@ -84,15 +84,25 @@ public class Terrain : MonoBehaviour
         float f1 = 1f + (float)rng.NextDouble() * 1.5f;
         float f2 = 3f + (float)rng.NextDouble() * 3f;
 
+        float[] heights = new float[cols];
         for (int c = 0; c < cols; c++)
         {
             float x = LeftX + (c + 0.5f) / cols * width;
             float t = (float)c / Mathf.Max(1, cols - 1);
-            float h = baseHeight
+            heights[c] = baseHeight
                 + Mathf.Sin(t * Mathf.PI * f1 + p1) * amplitude * 0.6f
                 + Mathf.Sin(t * Mathf.PI * f2 + p2) * amplitude * 0.3f
-                + Mathf.Sin(t * Mathf.PI * 9f + p3) * amplitude * 0.1f;
-            h = Mathf.Max(1.5f, h);
+                + Mathf.Sin(t * Mathf.PI * 9f + p3) * amplitude * 0.05f;
+        }
+
+        // Gentle smoothing pass: takes the edge off single-column spikes
+        // without changing the landscape's character.
+        for (int c = 1; c < cols - 1; c++)
+            heights[c] = (heights[c - 1] + heights[c] * 2f + heights[c + 1]) * 0.25f;
+
+        for (int c = 0; c < cols; c++)
+        {
+            float h = Mathf.Max(1.5f, heights[c]);
             SetColumnSurface(c, h);
         }
 
