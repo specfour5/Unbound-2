@@ -39,6 +39,10 @@ public class Tank : MonoBehaviour
     [Header("Ground handling (scale these with hull size)")]
     [Tooltip("Terrain sample spread, front to back. Match to the track contact patch.")]
     public float probeHalfWidth = 0.83f;
+    [Tooltip("How far past the flat track ends the sloped track tips reach.")]
+    public float trackTipExtra = 0.2f;
+    [Tooltip("Height of the sloped track tips above the flat track bottom. Tips ignore smaller bumps.")]
+    public float trackTipClearance = 0.12f;
     [Tooltip("Rest height of the tank origin above the ground surface.")]
     public float rideHeight = 0.45f;
     [Tooltip("How much the leading track may climb over small pixels instead of digging in.")]
@@ -257,7 +261,26 @@ public class Tank : MonoBehaviour
     }
 
     /// <summary>
-    /// Kinematically hugs the tank to the terrain: height from the lower of the
+    /// Effective terrain height under the leading and trailing track runs.
+    /// Each end blends its flat contact patch with the sloped track tip just
+    /// beyond it: the tip only lifts the hull once the ground there rises past
+    /// the tip's clearance, so the nose starts climbing bumps smoothly instead
+    /// of either clipping them or popping up early.
+    /// </summary>
+    void SampleTrackContacts(float x, out float lead, out float trail)
+    {
+        if (terrain == null) { lead = trail = 0f; return; }
+        float tipSpread = probeHalfWidth + trackTipExtra;
+        float flatLead = terrain.GetHeightAt(x + facing * probeHalfWidth);
+        float flatTrail = terrain.GetHeightAt(x - facing * probeHalfWidth);
+        float tipLead = terrain.GetHeightAt(x + facing * tipSpread);
+        float tipTrail = terrain.GetHeightAt(x - facing * tipSpread);
+        lead = Mathf.Max(flatLead, tipLead - trackTipClearance);
+        trail = Mathf.Max(flatTrail, tipTrail - trackTipClearance);
+    }
+
+    /// <summary>
+    /// Kinematically hugs the tank to the terrain: height from the average of the
     /// front/rear track contacts (plus a small forgiveness so the leading edge
     /// climbs small pixels instead of digging in). No bounce, no float.
     /// </summary>
@@ -265,8 +288,7 @@ public class Tank : MonoBehaviour
     {
         if (terrain == null) return;
         float x = rb.position.x;
-        float hLead = terrain.GetHeightAt(x + facing * probeHalfWidth);
-        float hTrail = terrain.GetHeightAt(x - facing * probeHalfWidth);
+        SampleTrackContacts(x, out float hLead, out float hTrail);
 
         float climb = Mathf.Clamp(hLead - hTrail, 0f, climbForgiveness);
         float targetY = (hLead + hTrail) * 0.5f + rideHeight + climb;
@@ -277,15 +299,15 @@ public class Tank : MonoBehaviour
 
     /// <summary>
     /// Tilts the visual body to the average inclination between the front and
-    /// rear track contacts. Stable on pixel steps and scales with hull size
-    /// via probeHalfWidth (no raycasts).
+    /// rear track contacts (tips included, so the nose starts pitching as the
+    /// sloped track end rides up). Stable on pixel steps and scales with hull
+    /// size via probeHalfWidth (no raycasts).
     /// </summary>
     void AlignToSlope()
     {
         if (visual == null || terrain == null) return;
         float x = transform.position.x;
-        float hLead = terrain.GetHeightAt(x + facing * probeHalfWidth);
-        float hTrail = terrain.GetHeightAt(x - facing * probeHalfWidth);
+        SampleTrackContacts(x, out float hLead, out float hTrail);
         float z = Mathf.Atan2(hLead - hTrail, 2f * probeHalfWidth) * Mathf.Rad2Deg * facing;
         z = Mathf.Clamp(z, -30f, 30f);
         Quaternion want = Quaternion.Euler(0f, 0f, z);
