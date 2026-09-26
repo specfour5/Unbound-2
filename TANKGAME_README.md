@@ -19,6 +19,14 @@ The setup script also sets **Active Input Handling to "Both"** automatically
 (Edit → Project Settings → Player), since the tank controls use classic
 keyboard input.
 
+## Battle setup
+Before the first turn, a setup box appears:
+- **Wind**: None / Light / **Default** / Strong / Extreme — scales how hard the wind
+  blows each turn (Default is the original behavior).
+- **Spawn distance**: Close / **Default** / Far — how far apart the two tanks spawn.
+- **Start Battle** applies the picks, drops the tanks onto flattened ground, and
+  begins the turn loop.
+
 ## Controls (your turn)
 
 | Keys | Action |
