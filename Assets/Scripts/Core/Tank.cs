@@ -176,8 +176,10 @@ public class Tank : MonoBehaviour
     {
         AlignToSlope();
         UpdateComponentFlash();
-        if (transform.position.y < -30f && IsAlive)
-            Die(silent: true); // fell through the world somehow
+        // Fell through the terrain or off the side of the world: destroyed.
+        if (IsAlive && (transform.position.y < -14f ||
+            Mathf.Abs(transform.position.x) > terrain.width * 0.5f + 10f))
+            Die(silent: true);
     }
 
     /// <summary>

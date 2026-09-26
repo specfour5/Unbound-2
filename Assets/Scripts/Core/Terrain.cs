@@ -28,7 +28,7 @@ public class Terrain : MonoBehaviour
 
     [Header("Pixel look")]
     [Tooltip("World units per pixel. Smaller = finer grain.")]
-    public float pixelSize = 0.35f;
+    public float pixelSize = 0.25f;
 
     [Header("Spawn flattening")]
     public System.Collections.Generic.List<FlattenSpot> flattenSpots =
@@ -44,6 +44,7 @@ public class Terrain : MonoBehaviour
     static readonly Color DirtDark = new Color(0.43f, 0.28f, 0.16f);
 
     bool[,] solid;
+    bool[,] scorched; // blast-charred pixels: never regrow grass
     int cols, rows;
     float gridY0;
     int[] topRow; // topmost solid row per column (-1 = empty)
@@ -72,6 +73,7 @@ public class Terrain : MonoBehaviour
         gridY0 = -12f;
         rows = Mathf.CeilToInt((16f - gridY0) / pixelSize);
         solid = new bool[cols, rows];
+        scorched = new bool[cols, rows];
         topRow = new int[cols];
 
         float p1 = (float)rng.NextDouble() * Mathf.PI * 2f;
@@ -154,6 +156,7 @@ public class Terrain : MonoBehaviour
     public void CarveCrater(Vector2 center, float radius)
     {
         if (solid == null) return;
+        int[] oldTop = (int[])topRow.Clone();
         int c0 = Mathf.Max(0, ColumnAt(center.x - radius));
         int c1 = Mathf.Min(cols - 1, ColumnAt(center.x + radius));
         int r0 = Mathf.Max(0, Mathf.FloorToInt((center.y - radius - gridY0) / pixelSize));
@@ -168,6 +171,18 @@ public class Terrain : MonoBehaviour
                 if (dx * dx + dy * dy <= r2)
                     solid[c, r] = false;
             }
+        // Scorch the freshly exposed surface instead of regrowing grass.
+        for (int c = c0; c <= c1; c++)
+        {
+            int nt = -1;
+            for (int r = rows - 1; r >= 0; r--)
+                if (solid[c, r]) { nt = r; break; }
+            if (nt >= 0 && nt < oldTop[c])
+            {
+                scorched[c, nt] = true;
+                if (nt - 1 >= 0) scorched[c, nt - 1] = true;
+            }
+        }
         Rebuild();
     }
 
@@ -195,8 +210,17 @@ public class Terrain : MonoBehaviour
         if (h1 < 0.13f) d = DirtDark;
         else if (h1 < 0.26f) d = DirtLight;
         else d = DirtBase * (0.94f + 0.12f * h1);
-        // Slight darkening with depth for richness.
-        return d * (1f - 0.12f * Mathf.Min(1f, depthPx / 18f));
+        // Strong darkening with depth for a rich underground feel.
+        return d * (1f - 0.5f * Mathf.Min(1f, depthPx / 22f));
+    }
+
+    /// <summary>Charred blast-crater pixels: dark, mottled, never grass.</summary>
+    static Color ScorchedColor(int c, int r)
+    {
+        float h1 = Hash01(c * 5 + 3, r * 11 + 7);
+        if (h1 < 0.25f) return new Color(0.13f, 0.10f, 0.08f);
+        if (h1 < 0.45f) return new Color(0.30f, 0.21f, 0.14f);
+        return new Color(0.22f, 0.16f, 0.12f) * (0.92f + 0.16f * h1);
     }
 
     void Rebuild()
@@ -238,16 +262,19 @@ public class Terrain : MonoBehaviour
                 float y1 = y0 + pixelSize;
                 int depthPx = topRow[c] - r;
                 bool isSurface = depthPx == 0;
-                Color body = PixelColor(c, r, depthPx);
+                bool isScorched = scorched[c, r];
+                Color body = isScorched ? ScorchedColor(c, r)
+                                        : PixelColor(c, r, depthPx);
 
                 int v = q * 4;
                 verts[v] = new Vector3(x0, y1, 0);
                 verts[v + 1] = new Vector3(x1, y1, 0);
                 verts[v + 2] = new Vector3(x0, y0, 0);
                 verts[v + 3] = new Vector3(x1, y0, 0);
-                // Dark outline along the very top, like the reference.
-                colors[v] = isSurface ? Outline : body;
-                colors[v + 1] = isSurface ? Outline : body;
+                // Dark outline along the very top of fresh grass (not on scorch).
+                Color topColor = (isSurface && !isScorched) ? Outline : body;
+                colors[v] = topColor;
+                colors[v + 1] = topColor;
                 colors[v + 2] = body;
                 colors[v + 3] = body;
                 uvs[v] = new Vector2(0, 1);
