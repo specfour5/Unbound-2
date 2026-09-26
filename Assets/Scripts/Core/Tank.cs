@@ -133,6 +133,8 @@ public class Tank : MonoBehaviour
         // correctly-sized Art sprites even if the scene baked stale ones.
         if (healthBG != null) healthBG.sprite = Art.CenteredWhite;
         if (healthFill != null) healthFill.sprite = Art.LeftPivotWhite;
+        // Enforce readable HP text size even if the scene baked the old one.
+        if (healthText != null) healthText.characterSize = 0.011f;
         UpdateHealthBar();
         if (isPlayer) BuildPreviewDots();
     }
@@ -177,7 +179,7 @@ public class Tank : MonoBehaviour
         AlignToSlope();
         UpdateComponentFlash();
         // Fell through the terrain or off the side of the world: destroyed.
-        if (IsAlive && (transform.position.y < -14f ||
+        if (IsAlive && (transform.position.y < -11f ||
             Mathf.Abs(transform.position.x) > terrain.width * 0.5f + 10f))
             Die(silent: true);
     }

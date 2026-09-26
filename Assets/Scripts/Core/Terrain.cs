@@ -94,10 +94,22 @@ public class Terrain : MonoBehaviour
             SetColumnSurface(c, h);
         }
 
+        RefreshTops(); // flattening reads surface heights, so tops must be current
         foreach (var spot in flattenSpots)
             ApplyFlatten(spot.x, spot.radius);
 
         Rebuild();
+    }
+
+    /// <summary>Recomputes the topmost solid row per column.</summary>
+    void RefreshTops()
+    {
+        for (int c = 0; c < cols; c++)
+        {
+            topRow[c] = -1;
+            for (int r = rows - 1; r >= 0; r--)
+                if (solid[c, r]) { topRow[c] = r; break; }
+        }
     }
 
     /// <summary>Fills/clears one column so its surface sits at height h.</summary>
@@ -232,13 +244,7 @@ public class Terrain : MonoBehaviour
         }
         if (edge == null) edge = GetComponent<EdgeCollider2D>();
 
-        // Refresh topmost-solid row per column.
-        for (int c = 0; c < cols; c++)
-        {
-            topRow[c] = -1;
-            for (int r = rows - 1; r >= 0; r--)
-                if (solid[c, r]) { topRow[c] = r; break; }
-        }
+        RefreshTops();
 
         int count = 0;
         for (int c = 0; c < cols; c++)

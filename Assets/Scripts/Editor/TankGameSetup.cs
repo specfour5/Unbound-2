@@ -261,7 +261,7 @@ public static class TankGameSetup
         var tm = hpt.AddComponent<TextMesh>();
         tm.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         tm.fontSize = 64;
-        tm.characterSize = 0.008f;
+        tm.characterSize = 0.011f;
         tm.anchor = TextAnchor.MiddleCenter;
         tm.alignment = TextAlignment.Center;
         tm.color = Color.white;
