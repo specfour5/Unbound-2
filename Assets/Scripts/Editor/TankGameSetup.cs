@@ -193,6 +193,7 @@ public static class TankGameSetup
         hullSR.sortingOrder = SortHull;
         tank.hull = hull.transform;
         tank.hullScale = hullK;
+        tank.hullRenderer = hullSR;
 
         var dome = new GameObject("Dome");
         dome.transform.SetParent(visual.transform, false);
@@ -205,6 +206,7 @@ public static class TankGameSetup
         domeSR.sprite = domeSpr;
         domeSR.color = color;
         domeSR.sortingOrder = SortDome;
+        tank.turretRenderer = domeSR;
 
         var pivot = new GameObject("TurretPivot");
         pivot.transform.SetParent(visual.transform, false);
@@ -221,6 +223,7 @@ public static class TankGameSetup
         bsr.sprite = barrelSpr;
         bsr.color = new Color(0.2f, 0.2f, 0.22f);
         bsr.sortingOrder = SortBarrel;
+        tank.weaponRenderer = bsr;
 
         var muzzle = new GameObject("Muzzle");
         muzzle.transform.SetParent(pivot.transform, false);

@@ -54,12 +54,22 @@ public class Tank : MonoBehaviour
     public SpriteRenderer healthFill;
     public Transform healthBarRoot;
     public TextMesh healthText;
+    [Tooltip("Renderer for the Hull component (flashes when hull is critical).")]
+    public SpriteRenderer hullRenderer;
+    [Tooltip("Renderer for the Turret component (flashes when turret is critical).")]
+    public SpriteRenderer turretRenderer;
+    [Tooltip("Renderer for the Cannon component (flashes when cannon is critical).")]
+    public SpriteRenderer weaponRenderer;
 
     protected Rigidbody2D rb;
     protected Collider2D col;
     protected TurnManager turnManager;
     protected Terrain terrain;
     protected float moveInput;
+
+    Color hullBaseColor = Color.white;
+    Color turretBaseColor = Color.white;
+    Color weaponBaseColor = Color.white;
 
     Transform[] previewDots;
     const int previewCount = 18;
@@ -115,6 +125,9 @@ public class Tank : MonoBehaviour
         turnManager = tm;
         terrain = tr;
         SetFacing(facing);
+        if (hullRenderer != null) hullBaseColor = hullRenderer.color;
+        if (turretRenderer != null) turretBaseColor = turretRenderer.color;
+        if (weaponRenderer != null) weaponBaseColor = weaponRenderer.color;
         UpdateHealthBar();
         if (isPlayer) BuildPreviewDots();
     }
@@ -157,8 +170,34 @@ public class Tank : MonoBehaviour
     protected virtual void Update()
     {
         AlignToSlope();
+        UpdateComponentFlash();
         if (transform.position.y < -30f && IsAlive)
             Die(silent: true); // fell through the world somehow
+    }
+
+    /// <summary>
+    /// A component at or below 20% health flashes white; the blink rate
+    /// speeds up as it approaches 0%.
+    /// </summary>
+    void UpdateComponentFlash()
+    {
+        if (!IsAlive || components == null) return;
+        FlashComponent("Hull", hullRenderer, hullBaseColor);
+        FlashComponent("Turret", turretRenderer, turretBaseColor);
+        FlashComponent("Cannon", weaponRenderer, weaponBaseColor);
+    }
+
+    void FlashComponent(string componentName, SpriteRenderer sr, Color baseColor)
+    {
+        if (sr == null) return;
+        var c = components.Find(x => x.name == componentName);
+        if (c == null || c.maxHP <= 0f) { sr.color = baseColor; return; }
+        float frac = c.hp / c.maxHP;
+        if (frac > 0.2f || !IsAlive) { sr.color = baseColor; return; }
+        float urgency = 1f - Mathf.Clamp01(frac / 0.2f); // 0 at 20%, 1 at 0%
+        float blinksPerSecond = Mathf.Lerp(2f, 12f, urgency);
+        bool on = (Time.time * blinksPerSecond) % 1f < 0.5f;
+        sr.color = on ? Color.white : baseColor;
     }
 
     /// <summary>Tilts the visual body to match the ground slope.</summary>
