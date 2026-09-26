@@ -314,6 +314,25 @@ public static class TankGameSetup
         return btn;
     }
 
+    // Yellow outline drawn behind the selected option button. It's a solid
+    // yellow rect slightly larger than the button; the opaque button covers
+    // the middle, leaving a yellow border visible around it.
+    static RectTransform MakeSelectionFrame(Transform parent, Vector2 buttonSize)
+    {
+        var go = new GameObject("SelectionFrame");
+        go.transform.SetParent(parent, false);
+        var rt = go.AddComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0.5f, 0.5f);
+        rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.sizeDelta = new Vector2(buttonSize.x + 10f, buttonSize.y + 10f);
+        var img = go.AddComponent<Image>();
+        img.sprite = Art.CenteredWhite;
+        img.color = new Color(1f, 0.85f, 0f, 1f);
+        go.SetActive(true);
+        return rt;
+    }
+
     static GameUI BuildUI()
     {
         var canvasGO = new GameObject("GameUI");
@@ -503,6 +522,10 @@ public static class TankGameSetup
             windButtons[i] = MakeButton("Wind_" + SetupMenu.WindNames[i], box.transform,
                 SetupMenu.WindNames[i], font, 22, new Vector2(x, 75f), new Vector2(128f, 46f));
         }
+        // Yellow selection frame behind the selected wind button ("Default" = index 2).
+        var windFrame = MakeSelectionFrame(box.transform, new Vector2(128f, 46f));
+        windFrame.SetSiblingIndex(0);
+        windFrame.anchoredPosition = new Vector2((2 - (windButtons.Length - 1) / 2f) * 136f, 75f);
 
         var spawnLabel = MakeLabel("SpawnLabel", box.transform, 0f, font, 22);
         spawnLabel.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, 5f);
@@ -515,6 +538,10 @@ public static class TankGameSetup
             spawnButtons[i] = MakeButton("Spawn_" + SetupMenu.SpawnNames[i], box.transform,
                 SetupMenu.SpawnNames[i], font, 22, new Vector2(x, -45f), new Vector2(150f, 46f));
         }
+        // Yellow selection frame behind the selected spawn button ("Default" = index 1).
+        var spawnFrame = MakeSelectionFrame(box.transform, new Vector2(150f, 46f));
+        spawnFrame.SetSiblingIndex(0);
+        spawnFrame.anchoredPosition = new Vector2((1 - (spawnButtons.Length - 1) / 2f) * 158f, -45f);
 
         var start = MakeButton("StartButton", box.transform, "START BATTLE", font, 22,
             new Vector2(0f, -160f), new Vector2(300f, 64f));
@@ -525,6 +552,8 @@ public static class TankGameSetup
         menu.windButtons = windButtons;
         menu.spawnButtons = spawnButtons;
         menu.startButton = start;
+        menu.windFrame = windFrame;
+        menu.spawnFrame = spawnFrame;
         return menu;
     }
 }

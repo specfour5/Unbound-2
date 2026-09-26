@@ -14,6 +14,8 @@ public class SetupMenu : MonoBehaviour
     public Button[] windButtons;
     public Button[] spawnButtons;
     public Button startButton;
+    public RectTransform windFrame;
+    public RectTransform spawnFrame;
 
     // Wind options: index 2 ("Default") matches the game's long-standing behavior.
     public static readonly string[] WindNames = { "None", "Light", "Default", "Strong", "Extreme" };
@@ -57,8 +59,22 @@ public class SetupMenu : MonoBehaviour
 
     void Refresh()
     {
-        for (int i = 0; i < windButtons.Length; i++) Tint(windButtons[i], i == windIndex);
-        for (int i = 0; i < spawnButtons.Length; i++) Tint(spawnButtons[i], i == spawnIndex);
+        for (int i = 0; i < windButtons.Length; i++)
+        {
+            bool sel = i == windIndex;
+            Tint(windButtons[i], sel);
+            StyleLabel(windButtons[i], sel);
+        }
+        for (int i = 0; i < spawnButtons.Length; i++)
+        {
+            bool sel = i == spawnIndex;
+            Tint(spawnButtons[i], sel);
+            StyleLabel(spawnButtons[i], sel);
+        }
+        if (windFrame != null && windButtons.Length > 0)
+            windFrame.anchoredPosition = windButtons[windIndex].GetComponent<RectTransform>().anchoredPosition;
+        if (spawnFrame != null && spawnButtons.Length > 0)
+            spawnFrame.anchoredPosition = spawnButtons[spawnIndex].GetComponent<RectTransform>().anchoredPosition;
     }
 
     static void Tint(Button b, bool selected)
@@ -66,6 +82,16 @@ public class SetupMenu : MonoBehaviour
         var img = b.GetComponent<Image>();
         if (img != null)
             img.color = selected ? new Color(0.25f, 0.62f, 0.32f) : new Color(0.22f, 0.24f, 0.28f);
+    }
+
+    static void StyleLabel(Button b, bool selected)
+    {
+        var t = b.GetComponentInChildren<Text>();
+        if (t != null)
+        {
+            t.fontStyle = selected ? FontStyle.Bold : FontStyle.Normal;
+            t.color = selected ? Color.yellow : Color.white;
+        }
     }
 
     void StartBattle()
