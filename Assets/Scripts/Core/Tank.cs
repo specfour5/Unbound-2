@@ -38,8 +38,10 @@ public class Tank : MonoBehaviour
     public float probeHalfWidth = 1.2f;
     [Tooltip("Rest height of the tank origin above the ground surface.")]
     public float rideHeight = 0.45f;
-    [Tooltip("Steps up to this tall are glided over instead of slammed into.")]
-    public float maxStepHeight = 0.5f;
+    [Tooltip("How much the leading track may climb over small pixels instead of digging in.")]
+    public float climbForgiveness = 0.35f;
+    [Tooltip("How stiffly the tank's height tracks the terrain.")]
+    public float groundFollowSharpness = 12f;
     public float slopeAlignSpeed = 6f;
 
     [Header("Weapon")]
@@ -197,7 +199,6 @@ public class Tank : MonoBehaviour
             float nx = Mathf.Clamp(rb.position.x + step, terrain.LeftX + 2f, terrain.RightX - 2f);
             float actual = nx - rb.position.x;
             rb.linearVelocity = new Vector2(actual / Time.fixedDeltaTime, rb.linearVelocity.y);
-            GlideOverSteps();
             FuelLeft = Mathf.Max(0f, FuelLeft - Mathf.Abs(actual));
         }
         else if (IsMyTurn && Mathf.Abs(moveInput) <= 0.01f)
@@ -206,6 +207,13 @@ public class Tank : MonoBehaviour
             // knockback only happens while HasFired or on someone else's turn).
             rb.linearVelocity = new Vector2(0f, rb.linearVelocity.y);
         }
+
+        // Hug the terrain on our own turn (before firing): height from the
+        // track contacts, so no bouncing on pixels and no floating.
+        // Knockback stays fully physical: it only happens after firing or on
+        // someone else's turn, when this constraint is off.
+        if (IsMyTurn && !HasFired && IsAlive)
+            ConstrainToGround();
     }
 
     protected virtual void Update()
@@ -244,36 +252,36 @@ public class Tank : MonoBehaviour
     }
 
     /// <summary>
-    /// While driving, lifts the tank over small terrain steps (pixel edges)
-    /// instead of letting the hull slam into them. Taller walls still block.
+    /// Kinematically hugs the tank to the terrain: height from the lower of the
+    /// front/rear track contacts (plus a small forgiveness so the leading edge
+    /// climbs small pixels instead of digging in). No bounce, no float.
     /// </summary>
-    void GlideOverSteps()
+    void ConstrainToGround()
     {
         if (terrain == null) return;
-        float aheadX = rb.position.x + facing * (probeHalfWidth + 0.3f);
-        float groundAhead = terrain.GetHeightAt(aheadX);
-        float feetY = rb.position.y - rideHeight;
-        float rise = groundAhead - feetY;
-        if (rise > 0.03f && rise <= maxStepHeight)
-        {
-            float wantVy = Mathf.Clamp(rise * 12f, 0f, 5f);
-            var v = rb.linearVelocity;
-            rb.linearVelocity = new Vector2(v.x, Mathf.Max(v.y, wantVy));
-        }
+        float x = rb.position.x;
+        float hLead = terrain.GetHeightAt(x + facing * probeHalfWidth);
+        float hTrail = terrain.GetHeightAt(x - facing * probeHalfWidth);
+
+        float climb = Mathf.Clamp(hLead - hTrail, 0f, climbForgiveness);
+        float targetY = Mathf.Min(hLead, hTrail) + rideHeight + climb;
+
+        float vy = Mathf.Clamp((targetY - rb.position.y) * groundFollowSharpness, -10f, 10f);
+        rb.linearVelocity = new Vector2(rb.linearVelocity.x, vy);
     }
 
     /// <summary>
-    /// Tilts the visual body to match the ground slope, sampled from the
-    /// terrain grid at the hull's front and back. Stable on pixel steps and
-    /// scales with hull size via probeHalfWidth (no raycasts).
+    /// Tilts the visual body to the average inclination between the front and
+    /// rear track contacts. Stable on pixel steps and scales with hull size
+    /// via probeHalfWidth (no raycasts).
     /// </summary>
     void AlignToSlope()
     {
         if (visual == null || terrain == null) return;
         float x = transform.position.x;
-        float hR = terrain.GetHeightAt(x + probeHalfWidth);
-        float hL = terrain.GetHeightAt(x - probeHalfWidth);
-        float z = Mathf.Atan2(hR - hL, 2f * probeHalfWidth) * Mathf.Rad2Deg;
+        float hLead = terrain.GetHeightAt(x + facing * probeHalfWidth);
+        float hTrail = terrain.GetHeightAt(x - facing * probeHalfWidth);
+        float z = Mathf.Atan2(hLead - hTrail, 2f * probeHalfWidth) * Mathf.Rad2Deg * facing;
         z = Mathf.Clamp(z, -30f, 30f);
         Quaternion want = Quaternion.Euler(0f, 0f, z);
         visual.rotation = Quaternion.Lerp(visual.rotation, want,
