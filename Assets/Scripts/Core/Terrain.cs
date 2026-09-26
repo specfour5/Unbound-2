@@ -277,6 +277,9 @@ public class Terrain : MonoBehaviour
         if (mesh == null)
         {
             mesh = new Mesh { name = "TerrainMesh" };
+            // The pixel grid exceeds 65k verts (480x48 quads); 16-bit index
+            // format would silently truncate the mesh.
+            mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
             GetComponent<MeshFilter>().mesh = mesh;
         }
         if (edge == null) edge = GetComponent<EdgeCollider2D>();
