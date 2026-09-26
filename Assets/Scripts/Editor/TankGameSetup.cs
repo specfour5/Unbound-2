@@ -72,7 +72,7 @@ public static class TankGameSetup
         ui.turnManager = tm;
 
         // --- Setup menu (pre-game options; starts the game on Start click) ---
-        var menu = BuildSetupMenu(ui.gameObject);
+        var menu = BuildSetupMenu();
         menu.turnManager = tm;
         menu.terrain = terrain;
         tm.startOnAwake = false;
@@ -479,9 +479,20 @@ public static class TankGameSetup
         return ui;
     }
 
-    static SetupMenu BuildSetupMenu(GameObject canvasGO)
+    static SetupMenu BuildSetupMenu()
     {
         Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+
+        // Menu gets its own canvas, separate from the HUD canvas. This isolates
+        // its text batching from the HUD's.
+        var canvasGO = new GameObject("SetupMenuCanvas");
+        var canvas = canvasGO.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.sortingOrder = 10; // draw above the HUD
+        var scaler = canvasGO.AddComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1280f, 720f);
+        canvasGO.AddComponent<GraphicRaycaster>();
 
         var dim = new GameObject("SetupMenu");
         dim.transform.SetParent(canvasGO.transform, false);
@@ -548,7 +559,7 @@ public static class TankGameSetup
         start.GetComponent<Image>().color = new Color(0.25f, 0.62f, 0.32f);
 
         var menu = dim.AddComponent<SetupMenu>();
-        menu.panel = dim;
+        menu.panel = canvasGO;
         menu.windButtons = windButtons;
         menu.spawnButtons = spawnButtons;
         menu.startButton = start;
