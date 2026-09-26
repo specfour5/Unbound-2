@@ -566,12 +566,12 @@ public static class TankGameSetup
 
         var title = MakeLabel("Title", box.transform, 0f, font, 22);
         var titleRT = title.GetComponent<RectTransform>();
-        titleRT.anchoredPosition = new Vector2(0f, 195f);
+        titleRT.anchoredPosition = new Vector2(0f, 200f);
         titleRT.sizeDelta = new Vector2(600f, 60f);
         title.text = "BATTLE SETUP";
 
         var windLabel = MakeLabel("WindLabel", box.transform, 0f, font, 22);
-        windLabel.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, 125f);
+        windLabel.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, 140f);
         windLabel.text = "WIND";
 
         var windButtons = new Button[SetupMenu.WindNames.Length];
@@ -579,15 +579,15 @@ public static class TankGameSetup
         {
             float x = (i - (windButtons.Length - 1) / 2f) * 136f;
             windButtons[i] = MakeButton("Wind_" + SetupMenu.WindNames[i], box.transform,
-                SetupMenu.WindNames[i], font, 22, new Vector2(x, 75f), new Vector2(128f, 46f));
+                SetupMenu.WindNames[i], font, 22, new Vector2(x, 95f), new Vector2(128f, 46f));
         }
         // Yellow selection frame behind the selected wind button ("Default" = index 2).
         var windFrame = MakeSelectionFrame(box.transform, new Vector2(128f, 46f));
         windFrame.SetSiblingIndex(0);
-        windFrame.anchoredPosition = new Vector2((2 - (windButtons.Length - 1) / 2f) * 136f, 75f);
+        windFrame.anchoredPosition = new Vector2((2 - (windButtons.Length - 1) / 2f) * 136f, 95f);
 
         var spawnLabel = MakeLabel("SpawnLabel", box.transform, 0f, font, 22);
-        spawnLabel.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, 5f);
+        spawnLabel.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, 35f);
         spawnLabel.text = "SPAWN DISTANCE";
 
         var spawnButtons = new Button[SetupMenu.SpawnNames.Length];
@@ -595,24 +595,42 @@ public static class TankGameSetup
         {
             float x = (i - (spawnButtons.Length - 1) / 2f) * 158f;
             spawnButtons[i] = MakeButton("Spawn_" + SetupMenu.SpawnNames[i], box.transform,
-                SetupMenu.SpawnNames[i], font, 22, new Vector2(x, -45f), new Vector2(150f, 46f));
+                SetupMenu.SpawnNames[i], font, 22, new Vector2(x, -10f), new Vector2(150f, 46f));
         }
         // Yellow selection frame behind the selected spawn button ("Default" = index 1).
         var spawnFrame = MakeSelectionFrame(box.transform, new Vector2(150f, 46f));
         spawnFrame.SetSiblingIndex(0);
-        spawnFrame.anchoredPosition = new Vector2((1 - (spawnButtons.Length - 1) / 2f) * 158f, -45f);
+        spawnFrame.anchoredPosition = new Vector2((1 - (spawnButtons.Length - 1) / 2f) * 158f, -10f);
+
+        var fuelLabel = MakeLabel("FuelLabel", box.transform, 0f, font, 22);
+        fuelLabel.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, -70f);
+        fuelLabel.text = "FUEL";
+
+        var fuelButtons = new Button[SetupMenu.FuelNames.Length];
+        for (int i = 0; i < fuelButtons.Length; i++)
+        {
+            float x = (i - (fuelButtons.Length - 1) / 2f) * 158f;
+            fuelButtons[i] = MakeButton("Fuel_" + SetupMenu.FuelNames[i], box.transform,
+                SetupMenu.FuelNames[i], font, 22, new Vector2(x, -115f), new Vector2(150f, 46f));
+        }
+        // Yellow selection frame behind the selected fuel button ("Low" = index 0).
+        var fuelFrame = MakeSelectionFrame(box.transform, new Vector2(150f, 46f));
+        fuelFrame.SetSiblingIndex(0);
+        fuelFrame.anchoredPosition = new Vector2((0 - (fuelButtons.Length - 1) / 2f) * 158f, -115f);
 
         var start = MakeButton("StartButton", box.transform, "START BATTLE", font, 22,
-            new Vector2(0f, -160f), new Vector2(300f, 64f));
+            new Vector2(0f, -190f), new Vector2(300f, 64f));
         start.GetComponent<Image>().color = new Color(0.25f, 0.62f, 0.32f);
 
         var menu = dim.AddComponent<SetupMenu>();
         menu.panel = canvasGO;
         menu.windButtons = windButtons;
         menu.spawnButtons = spawnButtons;
+        menu.fuelButtons = fuelButtons;
         menu.startButton = start;
         menu.windFrame = windFrame;
         menu.spawnFrame = spawnFrame;
+        menu.fuelFrame = fuelFrame;
         return menu;
     }
 }

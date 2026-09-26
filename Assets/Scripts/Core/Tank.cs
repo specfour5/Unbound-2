@@ -32,6 +32,9 @@ public class Tank : MonoBehaviour
     public float moveSpeed = 5f;
     [Tooltip("How many world units the tank may drive per turn.")]
     public float fuelPerTurn = 8f;
+    [HideInInspector] public float baseFuelPerTurn = 8f;
+    [Tooltip("When true, driving never drains fuel.")]
+    public bool unlimitedFuel = false;
 
     [Header("Ground handling (scale these with hull size)")]
     [Tooltip("Terrain sample spread, front to back. Match to roughly half the hull width.")]
@@ -128,6 +131,7 @@ public class Tank : MonoBehaviour
     {
         rb = GetComponent<Rigidbody2D>();
         col = GetComponent<Collider2D>();
+        baseFuelPerTurn = fuelPerTurn;
         if (components != null)
             foreach (var c in components) c.hp = c.maxHP;
     }
@@ -190,7 +194,7 @@ public class Tank : MonoBehaviour
 
     void FixedUpdate()
     {
-        if (IsMyTurn && !HasFired && IsAlive && FuelLeft > 0f && Mathf.Abs(moveInput) > 0.01f)
+        if (IsMyTurn && !HasFired && IsAlive && (unlimitedFuel || FuelLeft > 0f) && Mathf.Abs(moveInput) > 0.01f)
         {
             int wantFace = moveInput > 0f ? 1 : -1;
             if (wantFace != facing) SetFacing(wantFace);
@@ -199,7 +203,8 @@ public class Tank : MonoBehaviour
             float nx = Mathf.Clamp(rb.position.x + step, terrain.LeftX + 2f, terrain.RightX - 2f);
             float actual = nx - rb.position.x;
             rb.linearVelocity = new Vector2(actual / Time.fixedDeltaTime, rb.linearVelocity.y);
-            FuelLeft = Mathf.Max(0f, FuelLeft - Mathf.Abs(actual));
+            if (!unlimitedFuel)
+                FuelLeft = Mathf.Max(0f, FuelLeft - Mathf.Abs(actual));
         }
         else if (IsMyTurn && Mathf.Abs(moveInput) <= 0.01f)
         {

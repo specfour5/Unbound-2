@@ -54,7 +54,7 @@ public class GameUI : MonoBehaviour
         {
             powerText.text = $"Power  {tank.power:F0}";
             angleText.text = $"Angle  {tank.angle:F0}°";
-            fuelFill.fillAmount = Mathf.Clamp01(tank.FuelLeft / tank.fuelPerTurn);
+            fuelFill.fillAmount = tank.unlimitedFuel ? 1f : Mathf.Clamp01(tank.FuelLeft / tank.fuelPerTurn);
             if (powerFill != null)
             {
                 float p = Mathf.Clamp01((tank.power - tank.minPower) / (tank.maxPower - tank.minPower));

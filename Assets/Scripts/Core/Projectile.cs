@@ -68,7 +68,7 @@ public class Projectile : MonoBehaviour
         if (terrain != null)
             terrain.CarveCrater(p, blastRadius * 0.85f);
 
-        foreach (var tank in FindObjectsByType<Tank>(FindObjectsSortMode.None))
+        foreach (var tank in FindObjectsByType<Tank>(FindObjectsInactive.Exclude))
         {
             if (!tank.IsAlive) continue;
             float d = Vector2.Distance(p, tank.transform.position);
