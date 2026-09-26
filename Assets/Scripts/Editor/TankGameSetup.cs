@@ -103,16 +103,28 @@ public static class TankGameSetup
     const string DomeSpritePath = "Assets/Sprites/TurretDome.png";
     const string BarrelSpritePath = "Assets/Sprites/Barrel.png";
 
-    /// <summary>Makes sure a tank PNG imports as a Sprite so LoadAssetAtPath finds it.</summary>
+    /// <summary>
+    /// Makes sure a tank PNG imports as one single Sprite so LoadAssetAtPath finds it.
+    /// If the importer ever ends up in Multiple (sprite sheet) mode, Unity looks for a
+    /// "Name_0" sub-rect that lies outside the texture and the sprite silently fails
+    /// to import, so we force Single mode back here on every build.
+    /// </summary>
     static void EnsureSprite(string path)
     {
         var importer = AssetImporter.GetAtPath(path) as TextureImporter;
         if (importer == null) return;
+        bool changed = false;
         if (importer.textureType != TextureImporterType.Sprite)
         {
             importer.textureType = TextureImporterType.Sprite;
-            importer.SaveAndReimport();
+            changed = true;
         }
+        if (importer.spriteImportMode != SpriteImportMode.Single)
+        {
+            importer.spriteImportMode = SpriteImportMode.Single;
+            changed = true;
+        }
+        if (changed) importer.SaveAndReimport();
     }
 
     static Tank CreateTank(string name, Color color, int facing, bool isPlayer,
