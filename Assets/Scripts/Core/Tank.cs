@@ -37,8 +37,8 @@ public class Tank : MonoBehaviour
     public bool unlimitedFuel = false;
 
     [Header("Ground handling (scale these with hull size)")]
-    [Tooltip("Terrain sample spread, front to back. Match to roughly half the hull width.")]
-    public float probeHalfWidth = 1.2f;
+    [Tooltip("Terrain sample spread, front to back. Match to the track contact patch.")]
+    public float probeHalfWidth = 0.83f;
     [Tooltip("Rest height of the tank origin above the ground surface.")]
     public float rideHeight = 0.45f;
     [Tooltip("How much the leading track may climb over small pixels instead of digging in.")]
