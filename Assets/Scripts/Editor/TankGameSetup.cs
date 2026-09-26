@@ -25,7 +25,6 @@ public static class TankGameSetup
         var terrainGO = new GameObject("Terrain");
         var terrain = terrainGO.AddComponent<Terrain>();
         terrain.width = 120f;
-        terrain.samples = 240;
         terrain.baseHeight = 7f;
         terrain.amplitude = 4f;
         terrain.seed = 42;

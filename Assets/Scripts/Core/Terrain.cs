@@ -1,10 +1,10 @@
 using UnityEngine;
-using System.Collections.Generic;
 
 /// <summary>
-/// Destructible 2D terrain built from a heightmap.
-/// Rendered as a vertex-colored mesh, collided with an EdgeCollider2D.
-/// Explosions carve circular craters out of it.
+/// Destructible pixel-art terrain (Terraria-style).
+/// The ground is a grid of chunky square pixels: dark-outlined grass on top
+/// with a jagged edge, speckled dirt below. Explosions knock out pixels in a
+/// circle, leaving blocky craters. Collision follows the pixel tops.
 /// </summary>
 [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer), typeof(EdgeCollider2D))]
 public class Terrain : MonoBehaviour
@@ -16,26 +16,9 @@ public class Terrain : MonoBehaviour
         public float radius;
     }
 
-    [System.Serializable]
-    public struct StrataLayer
-    {
-        public string name;
-        [Tooltip("Thickness in world units. Ignored for the last layer (fills to Depth).")]
-        public float thickness;
-        public Color color;
-
-        public StrataLayer(string name, float thickness, Color color)
-        {
-            this.name = name;
-            this.thickness = thickness;
-            this.color = color;
-        }
-    }
-
     [Header("Size")]
     public float width = 120f;
     public float depth = 12f;
-    public int samples = 240;
 
     [Header("Shape")]
     public float baseHeight = 7f;
@@ -43,21 +26,27 @@ public class Terrain : MonoBehaviour
     [Tooltip("0 = random every play. Any other value = same hills every time.")]
     public int seed = 42;
 
+    [Header("Pixel look")]
+    [Tooltip("World units per pixel. Smaller = finer grain.")]
+    public float pixelSize = 0.35f;
+
     [Header("Spawn flattening")]
-    public List<FlattenSpot> flattenSpots = new List<FlattenSpot>();
+    public System.Collections.Generic.List<FlattenSpot> flattenSpots =
+        new System.Collections.Generic.List<FlattenSpot>();
 
-    [Header("Appearance (Terraria-style strata)")]
-    [Tooltip("Bands from the surface down. The last one fills to Depth.")]
-    public StrataLayer[] layers = new StrataLayer[]
-    {
-        new StrataLayer("Grass",      0.6f, new Color(0.40f, 0.74f, 0.27f)),
-        new StrataLayer("GrassRoots", 0.7f, new Color(0.36f, 0.58f, 0.25f)),
-        new StrataLayer("LightDirt",  2.0f, new Color(0.62f, 0.45f, 0.27f)),
-        new StrataLayer("Dirt",       3.0f, new Color(0.50f, 0.34f, 0.20f)),
-        new StrataLayer("DeepDirt",   0f,   new Color(0.33f, 0.22f, 0.13f)),
-    };
+    // Pixel palette (sampled from the reference look).
+    static readonly Color Outline = new Color(0.10f, 0.13f, 0.10f);
+    static readonly Color GrassBase = new Color(0.32f, 0.72f, 0.26f);
+    static readonly Color GrassLight = new Color(0.46f, 0.83f, 0.34f);
+    static readonly Color GrassDark = new Color(0.22f, 0.55f, 0.20f);
+    static readonly Color DirtBase = new Color(0.58f, 0.40f, 0.24f);
+    static readonly Color DirtLight = new Color(0.69f, 0.51f, 0.32f);
+    static readonly Color DirtDark = new Color(0.43f, 0.28f, 0.16f);
 
-    float[] heights;
+    bool[,] solid;
+    int cols, rows;
+    float gridY0;
+    int[] topRow; // topmost solid row per column (-1 = empty)
     Mesh mesh;
     EdgeCollider2D edge;
 
@@ -78,7 +67,12 @@ public class Terrain : MonoBehaviour
     {
         int useSeed = seed == 0 ? Random.Range(1, 100000) : seed;
         var rng = new System.Random(useSeed);
-        heights = new float[samples + 1];
+
+        cols = Mathf.CeilToInt(width / pixelSize);
+        gridY0 = -12f;
+        rows = Mathf.CeilToInt((16f - gridY0) / pixelSize);
+        solid = new bool[cols, rows];
+        topRow = new int[cols];
 
         float p1 = (float)rng.NextDouble() * Mathf.PI * 2f;
         float p2 = (float)rng.NextDouble() * Mathf.PI * 2f;
@@ -86,14 +80,16 @@ public class Terrain : MonoBehaviour
         float f1 = 1f + (float)rng.NextDouble() * 1.5f;
         float f2 = 3f + (float)rng.NextDouble() * 3f;
 
-        for (int i = 0; i <= samples; i++)
+        for (int c = 0; c < cols; c++)
         {
-            float t = (float)i / samples;
+            float x = LeftX + (c + 0.5f) / cols * width;
+            float t = (float)c / Mathf.Max(1, cols - 1);
             float h = baseHeight
                 + Mathf.Sin(t * Mathf.PI * f1 + p1) * amplitude * 0.6f
                 + Mathf.Sin(t * Mathf.PI * f2 + p2) * amplitude * 0.3f
                 + Mathf.Sin(t * Mathf.PI * 9f + p3) * amplitude * 0.1f;
-            heights[i] = Mathf.Max(1.5f, h);
+            h = Mathf.Max(1.5f, h);
+            SetColumnSurface(c, h);
         }
 
         foreach (var spot in flattenSpots)
@@ -102,11 +98,22 @@ public class Terrain : MonoBehaviour
         Rebuild();
     }
 
+    /// <summary>Fills/clears one column so its surface sits at height h.</summary>
+    void SetColumnSurface(int c, float h)
+    {
+        for (int r = 0; r < rows; r++)
+        {
+            float cb = gridY0 + r * pixelSize;
+            float ct = cb + pixelSize;
+            solid[c, r] = cb < h && ct > h - depth;
+        }
+    }
+
     /// <summary>Registers a flattened spawn area (survives regeneration) and applies it now.</summary>
     public void FlattenArea(float x, float radius)
     {
         flattenSpots.Add(new FlattenSpot { x = x, radius = radius });
-        if (heights != null)
+        if (solid != null)
         {
             ApplyFlatten(x, radius);
             Rebuild();
@@ -116,59 +123,80 @@ public class Terrain : MonoBehaviour
     void ApplyFlatten(float x, float radius)
     {
         float h = GetHeightAt(x);
-        int c = Mathf.RoundToInt((x - LeftX) / width * samples);
-        int r = Mathf.RoundToInt(radius / width * samples);
-        for (int i = Mathf.Max(0, c - r); i <= Mathf.Min(samples, c + r); i++)
+        int cc = ColumnAt(x);
+        int cr = Mathf.Max(1, Mathf.CeilToInt(radius / pixelSize));
+        for (int c = Mathf.Max(0, cc - cr); c <= Mathf.Min(cols - 1, cc + cr); c++)
         {
-            float blend = 1f - Mathf.Abs(i - c) / (float)(r + 1);
-            heights[i] = Mathf.Lerp(heights[i], h, blend * blend);
+            float blend = 1f - Mathf.Abs(c - cc) / (float)(cr + 1);
+            float colX = LeftX + (c + 0.5f) / cols * width;
+            float target = Mathf.Lerp(SurfaceY(c), h, blend * blend);
+            SetColumnSurface(c, target);
         }
+    }
+
+    int ColumnAt(float x)
+    {
+        return Mathf.Clamp(Mathf.FloorToInt((x - LeftX) / pixelSize), 0, cols - 1);
+    }
+
+    float SurfaceY(int c)
+    {
+        return topRow[c] < 0 ? gridY0 : gridY0 + (topRow[c] + 1) * pixelSize;
     }
 
     public float GetHeightAt(float x)
     {
-        if (heights == null) return baseHeight;
-        float t = Mathf.Clamp01((x - LeftX) / width) * samples;
-        int i = Mathf.FloorToInt(t);
-        int j = Mathf.Min(samples, i + 1);
-        return Mathf.Lerp(heights[i], heights[j], t - i);
+        if (solid == null) return baseHeight;
+        return SurfaceY(ColumnAt(x));
     }
 
-    /// <summary>Carves a circular crater centered on world position.</summary>
+    /// <summary>Knocks out pixels in a circle centered on world position.</summary>
     public void CarveCrater(Vector2 center, float radius)
     {
-        if (heights == null) return;
-        int c = Mathf.RoundToInt((center.x - LeftX) / width * samples);
-        int r = Mathf.CeilToInt(radius / width * samples) + 1;
-        for (int i = Mathf.Max(0, c - r); i <= Mathf.Min(samples, c + r); i++)
-        {
-            float x = LeftX + (float)i / samples * width;
-            float dx = x - center.x;
-            if (Mathf.Abs(dx) > radius) continue;
-            float circleY = center.y - Mathf.Sqrt(radius * radius - dx * dx);
-            if (heights[i] > circleY)
-                heights[i] = Mathf.Max(0.5f, circleY);
-        }
+        if (solid == null) return;
+        int c0 = Mathf.Max(0, ColumnAt(center.x - radius));
+        int c1 = Mathf.Min(cols - 1, ColumnAt(center.x + radius));
+        int r0 = Mathf.Max(0, Mathf.FloorToInt((center.y - radius - gridY0) / pixelSize));
+        int r1 = Mathf.Min(rows - 1, Mathf.CeilToInt((center.y + radius - gridY0) / pixelSize));
+        float r2 = radius * radius;
+        for (int c = c0; c <= c1; c++)
+            for (int r = r0; r <= r1; r++)
+            {
+                float px = LeftX + (c + 0.5f) * pixelSize;
+                float py = gridY0 + (r + 0.5f) * pixelSize;
+                float dx = px - center.x, dy = py - center.y;
+                if (dx * dx + dy * dy <= r2)
+                    solid[c, r] = false;
+            }
         Rebuild();
     }
 
-    /// <summary>
-    /// Deterministic wobble for a strata boundary so bands follow the hills
-    /// with a hand-made feel instead of perfectly flat lines.
-    /// </summary>
-    static float BoundaryWobble(float x, int boundary)
-    {
-        float p = boundary * 1.71f;
-        return (Mathf.Sin(x * 0.33f + p) * 0.6f
-              + Mathf.Sin(x * 0.83f + p * 2.33f) * 0.3f) * 0.45f;
-    }
-
-    /// <summary>Deterministic 0..1 pseudo-random for subtle per-column tint variation.</summary>
+    /// <summary>Deterministic 0..1 pseudo-random for per-pixel variation.</summary>
     static float Hash01(int a, int b)
     {
         int h = (a * 73856093) ^ (b * 19349663);
         h = (h ^ (h >> 13)) * 1274126177;
         return ((h ^ (h >> 16)) & 0xffff) / 65535f;
+    }
+
+    /// <summary>How many pixels deep the grass runs in a column (jagged edge).</summary>
+    static int GrassDepth(int c) => 1 + (int)(Hash01(c, 777) * 2.999f);
+
+    Color PixelColor(int c, int r, int depthPx)
+    {
+        float h1 = Hash01(c * 3 + 1, r * 7 + 2);
+        if (depthPx < GrassDepth(c))
+        {
+            if (h1 < 0.15f) return GrassLight;
+            if (h1 > 0.85f) return GrassDark;
+            return GrassBase * (0.95f + 0.10f * h1);
+        }
+        Color d;
+        if (h1 < 0.13f) d = DirtDark;
+        else if (h1 < 0.26f) d = DirtLight;
+        else d = DirtBase * (0.94f + 0.12f * h1);
+        // Slight darkening with depth for richness.
+        return d * (1f - 0.12f * Mathf.Min(1f, depthPx / 18f));
     }
 
     void Rebuild()
@@ -180,66 +208,71 @@ public class Terrain : MonoBehaviour
         }
         if (edge == null) edge = GetComponent<EdgeCollider2D>();
 
-        int L = (layers != null && layers.Length > 0) ? layers.Length : 1;
-        mesh.Clear();
-        int n = samples + 1;
-        int rows = L * 2; // top + bottom vertex row per layer (crisp bands)
-
-        // Depth of each layer boundary below the surface, before wobble.
-        float[] bound = new float[L + 1];
-        for (int k = 1; k < L; k++)
-            bound[k] = bound[k - 1] + Mathf.Max(0.2f, layers[k - 1].thickness);
-        bound[L] = depth;
-
-        Vector3[] verts = new Vector3[n * rows];
-        Color[] colors = new Color[n * rows];
-        Vector2[] uvs = new Vector2[n * rows];
-        var tris = new List<int>(samples * L * 6);
-
-        for (int i = 0; i < n; i++)
+        // Refresh topmost-solid row per column.
+        for (int c = 0; c < cols; c++)
         {
-            float x = LeftX + (float)i / samples * width;
-            float h = heights[i];
-            for (int k = 0; k < L; k++)
+            topRow[c] = -1;
+            for (int r = rows - 1; r >= 0; r--)
+                if (solid[c, r]) { topRow[c] = r; break; }
+        }
+
+        int count = 0;
+        for (int c = 0; c < cols; c++)
+            for (int r = 0; r < rows; r++)
+                if (solid[c, r]) count++;
+
+        var verts = new Vector3[count * 4];
+        var colors = new Color[count * 4];
+        var uvs = new Vector2[count * 4];
+        var tris = new int[count * 6];
+
+        int q = 0;
+        for (int c = 0; c < cols; c++)
+        {
+            float x0 = LeftX + c * pixelSize;
+            float x1 = x0 + pixelSize;
+            for (int r = 0; r < rows; r++)
             {
-                Color c = (layers != null && layers.Length > 0) ? layers[k].color
-                                                               : new Color(0.5f, 0.34f, 0.2f);
-                // Subtle per-column brightness variation so bands feel textured.
-                c *= 0.94f + 0.12f * Hash01(i, k);
+                if (!solid[c, r]) continue;
+                float y0 = gridY0 + r * pixelSize;
+                float y1 = y0 + pixelSize;
+                int depthPx = topRow[c] - r;
+                bool isSurface = depthPx == 0;
+                Color body = PixelColor(c, r, depthPx);
 
-                float topY = h - bound[k] - (k == 0 ? 0f : BoundaryWobble(x, k));
-                float botY = (k == L - 1) ? h - depth
-                                          : h - bound[k + 1] - BoundaryWobble(x, k + 1);
-                botY = Mathf.Min(botY, topY - 0.15f);
+                int v = q * 4;
+                verts[v] = new Vector3(x0, y1, 0);
+                verts[v + 1] = new Vector3(x1, y1, 0);
+                verts[v + 2] = new Vector3(x0, y0, 0);
+                verts[v + 3] = new Vector3(x1, y0, 0);
+                // Dark outline along the very top, like the reference.
+                colors[v] = isSurface ? Outline : body;
+                colors[v + 1] = isSurface ? Outline : body;
+                colors[v + 2] = body;
+                colors[v + 3] = body;
+                uvs[v] = new Vector2(0, 1);
+                uvs[v + 1] = new Vector2(1, 1);
+                uvs[v + 2] = new Vector2(0, 0);
+                uvs[v + 3] = new Vector2(1, 0);
 
-                int vt = (i * L + k) * 2;
-                verts[vt] = new Vector3(x, topY, 0);
-                verts[vt + 1] = new Vector3(x, botY, 0);
-                colors[vt] = c;
-                colors[vt + 1] = c;
-                uvs[vt] = new Vector2((float)i / samples, 1f - (float)k / L);
-                uvs[vt + 1] = new Vector2((float)i / samples, 1f - (float)(k + 1) / L);
-
-                if (i < samples)
-                {
-                    int a0 = vt, a1 = vt + 1;
-                    int b0 = vt + L * 2, b1 = vt + L * 2 + 1;
-                    tris.Add(a0); tris.Add(a1); tris.Add(b0);
-                    tris.Add(a1); tris.Add(b1); tris.Add(b0);
-                }
+                int t = q * 6;
+                tris[t] = v; tris[t + 1] = v + 2; tris[t + 2] = v + 1;
+                tris[t + 3] = v + 1; tris[t + 4] = v + 2; tris[t + 5] = v + 3;
+                q++;
             }
         }
 
+        mesh.Clear();
         mesh.vertices = verts;
         mesh.colors = colors;
         mesh.uv = uvs;
-        mesh.triangles = tris.ToArray();
+        mesh.triangles = tris;
         mesh.RecalculateNormals();
         mesh.RecalculateBounds();
 
-        Vector2[] pts = new Vector2[n];
-        for (int i = 0; i < n; i++)
-            pts[i] = new Vector2(LeftX + (float)i / samples * width, heights[i]);
+        var pts = new Vector2[cols];
+        for (int c = 0; c < cols; c++)
+            pts[c] = new Vector2(LeftX + c * pixelSize, SurfaceY(c));
         edge.points = pts;
     }
 }
