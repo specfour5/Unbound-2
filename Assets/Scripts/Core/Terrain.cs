@@ -100,6 +100,12 @@ public class Terrain : MonoBehaviour
         foreach (var spot in flattenSpots)
             ApplyFlatten(spot.x, spot.radius);
 
+        float minSurface = float.MaxValue;
+        for (int c = 0; c < cols; c++)
+            minSurface = Mathf.Min(minSurface, SurfaceY(c));
+        Debug.Log($"[Terrain] Generate done: cols={cols} pixelSize={pixelSize} " +
+                  $"minSurface={minSurface:F2} flattenSpots={flattenSpots.Count}");
+
         Rebuild();
     }
 

@@ -140,9 +140,23 @@ public class Tank : MonoBehaviour
         if (healthText != null)
         {
             if (healthText.font == null)
+            {
                 healthText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf")
                                ?? Resources.GetBuiltinResource<Font>("Arial.ttf");
-            healthText.characterSize = 0.014f;
+                if (healthText.font == null)
+                {
+                    // Last resort: grab any loaded font (builtin names vary by Unity version).
+                    var allFonts = Resources.FindObjectsOfTypeAll<Font>();
+                    if (allFonts.Length > 0) healthText.font = allFonts[0];
+                }
+            }
+            healthText.characterSize = 0.02f;
+            Debug.Log($"[Tank] Setup HP text: font={(healthText.font != null ? healthText.font.name : "NULL")} " +
+                      $"charSize={healthText.characterSize} text='{healthText.text}'");
+        }
+        else
+        {
+            Debug.LogWarning("[Tank] Setup: healthText is NULL (scene predates the HP number).");
         }
         UpdateHealthBar();
         if (isPlayer) BuildPreviewDots();
