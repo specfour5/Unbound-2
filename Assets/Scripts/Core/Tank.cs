@@ -269,7 +269,7 @@ public class Tank : MonoBehaviour
         float hTrail = terrain.GetHeightAt(x - facing * probeHalfWidth);
 
         float climb = Mathf.Clamp(hLead - hTrail, 0f, climbForgiveness);
-        float targetY = Mathf.Min(hLead, hTrail) + rideHeight + climb;
+        float targetY = (hLead + hTrail) * 0.5f + rideHeight + climb;
 
         float vy = Mathf.Clamp((targetY - rb.position.y) * groundFollowSharpness, -10f, 10f);
         rb.linearVelocity = new Vector2(rb.linearVelocity.x, vy);
