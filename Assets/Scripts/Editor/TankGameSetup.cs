@@ -161,8 +161,8 @@ public static class TankGameSetup
 
         var dome = new GameObject("Dome");
         dome.transform.SetParent(visual.transform, false);
-        const float domeS = 0.12308f; // dome content 1300px wide -> 1.6 world units
-        dome.transform.localPosition = new Vector3(0f, 1.1808f, 0f);
+        const float domeS = 0.08060f; // dome content 1985px wide -> 1.6 world units
+        dome.transform.localPosition = new Vector3(-0.0089f, 0.8378f, 0f);
         dome.transform.localScale = new Vector3(domeS, domeS, 1f);
         var domeSR = dome.AddComponent<SpriteRenderer>();
         domeSR.sprite = domeSpr;
@@ -176,7 +176,9 @@ public static class TankGameSetup
         var barrel = new GameObject("Barrel");
         barrel.transform.SetParent(pivot.transform, false);
         const float barrelS = 0.07454f; // barrel content 2616px long -> tip lands at 1.95
-        barrel.transform.localPosition = new Vector3(13.08f, 0.285f, 0f);
+        // NOTE: localPosition is in pivot units (not scaled by barrelS): it places
+        // the barrel tip exactly on the muzzle at pivot-local (1.95, 0).
+        barrel.transform.localPosition = new Vector3(0.9758f, 0.024f, 0f);
         barrel.transform.localScale = new Vector3(barrelS, barrelS, 1f);
         var bsr = barrel.AddComponent<SpriteRenderer>();
         bsr.sprite = barrelSpr;
