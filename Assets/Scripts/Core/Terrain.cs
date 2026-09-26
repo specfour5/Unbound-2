@@ -28,7 +28,7 @@ public class Terrain : MonoBehaviour
 
     [Header("Pixel look")]
     [Tooltip("World units per pixel. Smaller = finer grain.")]
-    public float pixelSize = 0.25f;
+    public float pixelSize = 0.15f;
 
     [Header("Spawn flattening")]
     public System.Collections.Generic.List<FlattenSpot> flattenSpots =
@@ -235,7 +235,7 @@ public class Terrain : MonoBehaviour
     }
 
     /// <summary>How many pixels deep the grass runs in a column (jagged edge).</summary>
-    static int GrassDepth(int c) => 1 + (int)(Hash01(c, 777) * 2.999f);
+    static int GrassDepth(int c) => 2 + (int)(Hash01(c, 777) * 2.999f);
 
     Color PixelColor(int c, int r, int depthPx)
     {

@@ -33,6 +33,15 @@ public class Tank : MonoBehaviour
     [Tooltip("How many world units the tank may drive per turn.")]
     public float fuelPerTurn = 8f;
 
+    [Header("Ground handling (scale these with hull size)")]
+    [Tooltip("Terrain sample spread, front to back. Match to roughly half the hull width.")]
+    public float probeHalfWidth = 1.2f;
+    [Tooltip("Rest height of the tank origin above the ground surface.")]
+    public float rideHeight = 0.45f;
+    [Tooltip("Steps up to this tall are glided over instead of slammed into.")]
+    public float maxStepHeight = 0.5f;
+    public float slopeAlignSpeed = 6f;
+
     [Header("Weapon")]
     public float minAngle = 5f;
     public float maxAngle = 175f;
@@ -188,6 +197,7 @@ public class Tank : MonoBehaviour
             float nx = Mathf.Clamp(rb.position.x + step, terrain.LeftX + 2f, terrain.RightX - 2f);
             float actual = nx - rb.position.x;
             rb.linearVelocity = new Vector2(actual / Time.fixedDeltaTime, rb.linearVelocity.y);
+            GlideOverSteps();
             FuelLeft = Mathf.Max(0f, FuelLeft - Mathf.Abs(actual));
         }
         else if (IsMyTurn && Mathf.Abs(moveInput) <= 0.01f)
@@ -233,20 +243,41 @@ public class Tank : MonoBehaviour
         sr.color = on ? Color.white : baseColor;
     }
 
-    /// <summary>Tilts the visual body to match the ground slope.</summary>
+    /// <summary>
+    /// While driving, lifts the tank over small terrain steps (pixel edges)
+    /// instead of letting the hull slam into them. Taller walls still block.
+    /// </summary>
+    void GlideOverSteps()
+    {
+        if (terrain == null) return;
+        float aheadX = rb.position.x + facing * (probeHalfWidth + 0.3f);
+        float groundAhead = terrain.GetHeightAt(aheadX);
+        float feetY = rb.position.y - rideHeight;
+        float rise = groundAhead - feetY;
+        if (rise > 0.03f && rise <= maxStepHeight)
+        {
+            float wantVy = Mathf.Clamp(rise * 12f, 0f, 5f);
+            var v = rb.linearVelocity;
+            rb.linearVelocity = new Vector2(v.x, Mathf.Max(v.y, wantVy));
+        }
+    }
+
+    /// <summary>
+    /// Tilts the visual body to match the ground slope, sampled from the
+    /// terrain grid at the hull's front and back. Stable on pixel steps and
+    /// scales with hull size via probeHalfWidth (no raycasts).
+    /// </summary>
     void AlignToSlope()
     {
-        if (visual == null) return;
-        var hits = Physics2D.RaycastAll(transform.position + Vector3.up * 0.5f, Vector2.down, 5f);
-        foreach (var h in hits)
-        {
-            if (h.collider == null || h.collider == col) continue;
-            float z = Vector2.SignedAngle(Vector2.up, h.normal);
-            z = Mathf.Clamp(z, -30f, 30f);
-            Quaternion want = Quaternion.Euler(0f, 0f, z);
-            visual.rotation = Quaternion.Lerp(visual.rotation, want, 1f - Mathf.Exp(-8f * Time.deltaTime));
-            return;
-        }
+        if (visual == null || terrain == null) return;
+        float x = transform.position.x;
+        float hR = terrain.GetHeightAt(x + probeHalfWidth);
+        float hL = terrain.GetHeightAt(x - probeHalfWidth);
+        float z = Mathf.Atan2(hR - hL, 2f * probeHalfWidth) * Mathf.Rad2Deg;
+        z = Mathf.Clamp(z, -30f, 30f);
+        Quaternion want = Quaternion.Euler(0f, 0f, z);
+        visual.rotation = Quaternion.Lerp(visual.rotation, want,
+            1f - Mathf.Exp(-slopeAlignSpeed * Time.deltaTime));
     }
 
     public void AdjustAngle(float delta)
