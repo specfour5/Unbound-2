@@ -11,26 +11,28 @@ public static class Art
     static Sprite centeredCircle;
     static Texture2D circleTex;
 
-    /// <summary>1x1 white sprite, pivot in the center. Scale the transform to size it.</summary>
+    /// <summary>1x1 white sprite, pivot in the center. 1 pixel = 1 world unit,
+    /// so scale the transform directly in world units to size it.</summary>
     public static Sprite CenteredWhite
     {
         get
         {
             if (centeredWhite == null)
                 centeredWhite = Sprite.Create(Texture2D.whiteTexture,
-                    new Rect(0, 0, 1, 1), new Vector2(0.5f, 0.5f), 100f);
+                    new Rect(0, 0, 1, 1), new Vector2(0.5f, 0.5f), 1f);
             return centeredWhite;
         }
     }
 
-    /// <summary>1x1 white sprite, pivot on the left edge. Useful for bars that shrink left-to-right.</summary>
+    /// <summary>1x1 white sprite, pivot on the left edge. 1 pixel = 1 world unit.
+    /// Useful for bars that shrink left-to-right.</summary>
     public static Sprite LeftPivotWhite
     {
         get
         {
             if (leftPivotWhite == null)
                 leftPivotWhite = Sprite.Create(Texture2D.whiteTexture,
-                    new Rect(0, 0, 1, 1), new Vector2(0f, 0.5f), 100f);
+                    new Rect(0, 0, 1, 1), new Vector2(0f, 0.5f), 1f);
             return leftPivotWhite;
         }
     }
