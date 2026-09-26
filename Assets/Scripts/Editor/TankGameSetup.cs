@@ -252,7 +252,9 @@ public static class TankGameSetup
         topRT.pivot = new Vector2(0.5f, 1f);
         topRT.anchoredPosition = new Vector2(0f, -8f);
         topRT.sizeDelta = new Vector2(0f, 48f);
-        top.AddComponent<Image>().color = new Color(0f, 0f, 0f, 0.45f);
+        var topImg = top.AddComponent<Image>();
+        topImg.sprite = Art.CenteredWhite;
+        topImg.color = new Color(0f, 0f, 0f, 0.45f);
 
         MakeLabel("PowerText", top.transform, -420f, font, 22);
         MakeLabel("AngleText", top.transform, -210f, font, 22);
@@ -268,7 +270,9 @@ public static class TankGameSetup
         fuelRT.pivot = new Vector2(0f, 1f);
         fuelRT.anchoredPosition = new Vector2(16f, -66f);
         fuelRT.sizeDelta = new Vector2(260f, 20f);
-        fuel.AddComponent<Image>().color = new Color(0f, 0f, 0f, 0.5f);
+        var fuelBg = fuel.AddComponent<Image>();
+        fuelBg.sprite = Art.CenteredWhite;
+        fuelBg.color = new Color(0f, 0f, 0f, 0.5f);
 
         var fill = new GameObject("Fill");
         fill.transform.SetParent(fuel.transform, false);
@@ -278,6 +282,7 @@ public static class TankGameSetup
         fillRT.offsetMin = Vector2.zero;
         fillRT.offsetMax = Vector2.zero;
         var fillImg = fill.AddComponent<Image>();
+        fillImg.sprite = Art.CenteredWhite;
         fillImg.type = Image.Type.Filled;
         fillImg.fillMethod = Image.FillMethod.Horizontal;
         fillImg.fillOrigin = (int)Image.OriginHorizontal.Left;
@@ -320,7 +325,9 @@ public static class TankGameSetup
         pRT.anchorMax = Vector2.one;
         pRT.offsetMin = Vector2.zero;
         pRT.offsetMax = Vector2.zero;
-        panel.AddComponent<Image>().color = new Color(0f, 0f, 0f, 0.75f);
+        var panelImg = panel.AddComponent<Image>();
+        panelImg.sprite = Art.CenteredWhite;
+        panelImg.color = new Color(0f, 0f, 0f, 0.75f);
 
         var goText = MakeLabel("GameOverText", panel.transform, 0f, font, 72);
         var gRT = goText.GetComponent<RectTransform>();
