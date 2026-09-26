@@ -1,4 +1,5 @@
 using UnityEngine;
+using System.Collections.Generic;
 
 /// <summary>
 /// Base tank: health, per-turn fuel movement, turret aiming, firing, slope tilting.
@@ -7,16 +8,27 @@ using UnityEngine;
 [RequireComponent(typeof(Rigidbody2D), typeof(BoxCollider2D))]
 public class Tank : MonoBehaviour
 {
-    public const float HealthBarW = 2.5f;
-    public const float HealthBarH = 0.22f;
+    public const float HealthBarW = 3.0f;
+    public const float HealthBarH = 0.5f;
+
+    /// <summary>One damageable part of the tank (hull, turret, weapon...).</summary>
+    [System.Serializable]
+    public class ComponentSlot
+    {
+        public string name = "Hull";
+        public float maxHP = 100f;
+        [HideInInspector] public float hp;
+    }
 
     [Header("Identity")]
     public bool isPlayer;
     [Tooltip("+1 faces right, -1 faces left.")]
     public int facing = 1;
 
+    [Header("Components (hull, turret, weapons each have their own pool)")]
+    public List<ComponentSlot> components = new List<ComponentSlot>();
+
     [Header("Stats")]
-    public float maxHealth = 100f;
     public float moveSpeed = 5f;
     [Tooltip("How many world units the tank may drive per turn.")]
     public float fuelPerTurn = 8f;
@@ -41,6 +53,7 @@ public class Tank : MonoBehaviour
     public float hullScale = 1f;
     public SpriteRenderer healthFill;
     public Transform healthBarRoot;
+    public TextMesh healthText;
 
     protected Rigidbody2D rb;
     protected Collider2D col;
@@ -51,8 +64,30 @@ public class Tank : MonoBehaviour
     Transform[] previewDots;
     const int previewCount = 18;
 
-    public float Health { get; protected set; }
-    public bool IsAlive => Health > 0f;
+    /// <summary>Average of all component health pools (what the health bar shows).</summary>
+    public float AverageHP
+    {
+        get
+        {
+            if (components == null || components.Count == 0) return 0f;
+            float sum = 0f;
+            foreach (var c in components) sum += c.hp;
+            return sum / components.Count;
+        }
+    }
+
+    public float AverageMaxHP
+    {
+        get
+        {
+            if (components == null || components.Count == 0) return 1f;
+            float sum = 0f;
+            foreach (var c in components) sum += c.maxHP;
+            return sum / components.Count;
+        }
+    }
+
+    public bool IsAlive => AverageHP > 0f;
     public bool IsMyTurn { get; protected set; }
     public bool HasFired { get; protected set; }
     public float FuelLeft { get; protected set; }
@@ -71,7 +106,8 @@ public class Tank : MonoBehaviour
     {
         rb = GetComponent<Rigidbody2D>();
         col = GetComponent<Collider2D>();
-        Health = maxHealth;
+        if (components != null)
+            foreach (var c in components) c.hp = c.maxHP;
     }
 
     public virtual void Setup(TurnManager tm, Terrain tr)
@@ -193,10 +229,12 @@ public class Tank : MonoBehaviour
 
     public void TakeDamage(float dmg)
     {
-        if (!IsAlive) return;
-        Health = Mathf.Max(0f, Health - dmg);
+        if (!IsAlive || components == null || components.Count == 0) return;
+        // Each hit damages one random component; the bar shows the average.
+        var c = components[Random.Range(0, components.Count)];
+        c.hp = Mathf.Max(0f, c.hp - dmg);
         UpdateHealthBar();
-        if (Health <= 0f) Die(silent: false);
+        if (AverageHP <= 0f) Die(silent: false);
     }
 
     public void Knockback(Vector2 force)
@@ -206,7 +244,8 @@ public class Tank : MonoBehaviour
 
     protected void Die(bool silent)
     {
-        Health = 0f;
+        if (components != null)
+            foreach (var c in components) c.hp = 0f;
         if (!silent) ExplosionFX.Spawn(transform.position, 3.5f);
         if (visual != null) visual.gameObject.SetActive(false);
         if (healthBarRoot != null) healthBarRoot.gameObject.SetActive(false);
@@ -219,9 +258,11 @@ public class Tank : MonoBehaviour
     void UpdateHealthBar()
     {
         if (healthFill == null) return;
-        float f = Mathf.Clamp01(Health / maxHealth);
+        float f = Mathf.Clamp01(AverageHP / AverageMaxHP);
         healthFill.transform.localScale = new Vector3(HealthBarW * f, HealthBarH, 1f);
-        healthFill.color = Color.Lerp(Color.red, Color.green, f);
+        healthFill.color = Color.red;
+        if (healthText != null)
+            healthText.text = Mathf.CeilToInt(AverageHP).ToString();
     }
 
     #region Aim preview (player only)

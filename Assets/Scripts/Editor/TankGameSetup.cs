@@ -155,6 +155,15 @@ public static class TankGameSetup
 
         Tank tank = isPlayer ? (Tank)go.AddComponent<PlayerTank>() : go.AddComponent<EnemyTank>();
         tank.isPlayer = isPlayer;
+
+        // Component health pools: hull, turret, and weapon each track damage
+        // separately; the health bar shows the average.
+        tank.components = new List<Tank.ComponentSlot>
+        {
+            new Tank.ComponentSlot { name = "Hull", maxHP = 100f },
+            new Tank.ComponentSlot { name = "Turret", maxHP = 100f },
+            new Tank.ComponentSlot { name = "Cannon", maxHP = 100f },
+        };
         tank.facing = facing;
         tank.projectileTemplate = projTemplate;
 
@@ -220,10 +229,12 @@ public static class TankGameSetup
         tank.turretPivot = pivot.transform;
         tank.muzzle = muzzle.transform;
 
-        // Health bar (stays upright, not tilted with the body)
+        // Health bar (stays upright, not tilted with the body).
+        // Red meter showing the average of the component pools, with the
+        // average hitpoints as a number inside.
         var hb = new GameObject("HealthBar");
         hb.transform.SetParent(go.transform, false);
-        hb.transform.localPosition = new Vector3(0f, 2.1f, 0f);
+        hb.transform.localPosition = new Vector3(0f, 2.2f, 0f);
 
         var bg = new GameObject("BG");
         bg.transform.SetParent(hb.transform, false);
@@ -238,11 +249,25 @@ public static class TankGameSetup
         fill.transform.localPosition = new Vector3(-Tank.HealthBarW / 2f, 0f, 0f);
         var fsr = fill.AddComponent<SpriteRenderer>();
         fsr.sprite = Art.LeftPivotWhite;
-        fsr.color = Color.green;
+        fsr.color = Color.red;
         fsr.sortingOrder = 6;
+
+        var hpt = new GameObject("HPText");
+        hpt.transform.SetParent(hb.transform, false);
+        hpt.transform.localPosition = new Vector3(0f, 0f, -0.1f);
+        var tm = hpt.AddComponent<TextMesh>();
+        tm.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        tm.fontSize = 64;
+        tm.characterSize = 0.008f;
+        tm.anchor = TextAnchor.MiddleCenter;
+        tm.alignment = TextAlignment.Center;
+        tm.color = Color.white;
+        tm.text = "100";
+        tm.GetComponent<Renderer>().sortingOrder = 7;
 
         tank.healthFill = fsr;
         tank.healthBarRoot = hb.transform;
+        tank.healthText = tm;
 
         return tank;
     }
