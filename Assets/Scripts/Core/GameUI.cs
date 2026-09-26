@@ -17,6 +17,7 @@ public class GameUI : MonoBehaviour
     Text bannerText;
     Text helpText;
     Image fuelFill;
+    Image powerFill;
     GameObject gameOverPanel;
     Text gameOverText;
 
@@ -31,6 +32,8 @@ public class GameUI : MonoBehaviour
         bannerText = FindText("BannerText");
         helpText = FindText("HelpText");
         fuelFill = transform.Find("FuelBar/Fill").GetComponent<Image>();
+        var powerBar = transform.Find("PowerBar/Fill");
+        powerFill = powerBar != null ? powerBar.GetComponent<Image>() : null;
         gameOverPanel = transform.Find("GameOverPanel").gameObject;
         gameOverText = gameOverPanel.transform.Find("GameOverText").GetComponent<Text>();
         SetBannerAlpha(0f);
@@ -52,6 +55,13 @@ public class GameUI : MonoBehaviour
             powerText.text = $"Power  {tank.power:F0}";
             angleText.text = $"Angle  {tank.angle:F0}°";
             fuelFill.fillAmount = Mathf.Clamp01(tank.FuelLeft / tank.fuelPerTurn);
+            if (powerFill != null)
+            {
+                float p = Mathf.Clamp01((tank.power - tank.minPower) / (tank.maxPower - tank.minPower));
+                powerFill.fillAmount = p;
+                // Charge gradient: green -> yellow -> red as power rises.
+                powerFill.color = Color.HSVToRGB(Mathf.Lerp(0.33f, 0f, p), 0.85f, 0.95f);
+            }
             timerText.text = $"{Mathf.CeilToInt(Mathf.Max(0f, turnManager.TimeLeft))}s";
             helpText.gameObject.SetActive(tank.isPlayer);
         }

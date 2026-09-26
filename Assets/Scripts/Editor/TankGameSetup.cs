@@ -298,6 +298,43 @@ public static class TankGameSetup
         fuelLabel.alignment = TextAnchor.UpperLeft;
         fuelLabel.text = "FUEL";
 
+        // Power bar (top-right, fills with a green->red gradient as you charge)
+        var pbar = new GameObject("PowerBar");
+        pbar.transform.SetParent(canvasGO.transform, false);
+        var pbarRT = pbar.AddComponent<RectTransform>();
+        pbarRT.anchorMin = new Vector2(1f, 1f);
+        pbarRT.anchorMax = new Vector2(1f, 1f);
+        pbarRT.pivot = new Vector2(1f, 1f);
+        pbarRT.anchoredPosition = new Vector2(-16f, -66f);
+        pbarRT.sizeDelta = new Vector2(260f, 20f);
+        var pbarBg = pbar.AddComponent<Image>();
+        pbarBg.sprite = Art.CenteredWhite;
+        pbarBg.color = new Color(0f, 0f, 0f, 0.5f);
+
+        var pfill = new GameObject("Fill");
+        pfill.transform.SetParent(pbar.transform, false);
+        var pfillRT = pfill.AddComponent<RectTransform>();
+        pfillRT.anchorMin = Vector2.zero;
+        pfillRT.anchorMax = Vector2.one;
+        pfillRT.offsetMin = Vector2.zero;
+        pfillRT.offsetMax = Vector2.zero;
+        var pfillImg = pfill.AddComponent<Image>();
+        pfillImg.sprite = Art.CenteredWhite;
+        pfillImg.type = Image.Type.Filled;
+        pfillImg.fillMethod = Image.FillMethod.Horizontal;
+        pfillImg.fillOrigin = (int)Image.OriginHorizontal.Left;
+        pfillImg.color = Color.green;
+
+        var powerLabel = MakeLabel("PowerLabel", canvasGO.transform, 0f, font, 15);
+        var plRT = powerLabel.GetComponent<RectTransform>();
+        plRT.anchorMin = new Vector2(1f, 1f);
+        plRT.anchorMax = new Vector2(1f, 1f);
+        plRT.pivot = new Vector2(1f, 1f);
+        plRT.anchoredPosition = new Vector2(-16f, -90f);
+        plRT.sizeDelta = new Vector2(260f, 22f);
+        powerLabel.alignment = TextAnchor.UpperRight;
+        powerLabel.text = "POWER";
+
         // Turn banner
         var banner = MakeLabel("BannerText", canvasGO.transform, 0f, font, 64);
         var bRT = banner.GetComponent<RectTransform>();
@@ -315,7 +352,7 @@ public static class TankGameSetup
         hRT.anchoredPosition = new Vector2(0f, 14f);
         hRT.sizeDelta = new Vector2(1100f, 30f);
         help.alignment = TextAnchor.MiddleCenter;
-        help.text = "A/D or \u2190/\u2192 move     W/S or \u2191/\u2193 aim     Q/E power     SPACE fire";
+        help.text = "A/D or \u2190/\u2192 move     W/S or \u2191/\u2193 aim     HOLD SPACE charge, RELEASE fire";
 
         // Game over panel
         var panel = new GameObject("GameOverPanel");
