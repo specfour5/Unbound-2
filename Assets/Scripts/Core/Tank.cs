@@ -133,8 +133,17 @@ public class Tank : MonoBehaviour
         // correctly-sized Art sprites even if the scene baked stale ones.
         if (healthBG != null) healthBG.sprite = Art.CenteredWhite;
         if (healthFill != null) healthFill.sprite = Art.LeftPivotWhite;
-        // Enforce readable HP text size even if the scene baked the old one.
-        if (healthText != null) healthText.characterSize = 0.011f;
+        // Enforce readable HP text size even if the scene baked the old one,
+        // and (re)assign a font at runtime: builtin font references baked by
+        // the editor script don't always survive serialization, which leaves
+        // the TextMesh with degenerate single-pixel geometry.
+        if (healthText != null)
+        {
+            if (healthText.font == null)
+                healthText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf")
+                               ?? Resources.GetBuiltinResource<Font>("Arial.ttf");
+            healthText.characterSize = 0.014f;
+        }
         UpdateHealthBar();
         if (isPlayer) BuildPreviewDots();
     }
