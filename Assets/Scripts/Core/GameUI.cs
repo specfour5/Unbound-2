@@ -10,6 +10,10 @@ public class GameUI : MonoBehaviour
 {
     public TurnManager turnManager;
 
+    [Header("Wired by the setup script")]
+    public GameObject gameOverPanel;
+    public Text gameOverText;
+
     Text powerText;
     Text angleText;
     Text windText;
@@ -18,8 +22,6 @@ public class GameUI : MonoBehaviour
     Text helpText;
     Image fuelFill;
     Image powerFill;
-    GameObject gameOverPanel;
-    Text gameOverText;
 
     float bannerTimer;
 
@@ -34,8 +36,6 @@ public class GameUI : MonoBehaviour
         fuelFill = transform.Find("FuelBar/Fill").GetComponent<Image>();
         var powerBar = transform.Find("PowerBar/Fill");
         powerFill = powerBar != null ? powerBar.GetComponent<Image>() : null;
-        gameOverPanel = transform.Find("GameOverPanel").gameObject;
-        gameOverText = gameOverPanel.transform.Find("GameOverText").GetComponent<Text>();
         SetBannerAlpha(0f);
     }
 
@@ -85,6 +85,7 @@ public class GameUI : MonoBehaviour
 
     public void ShowGameOver(bool won)
     {
+        if (gameOverPanel == null || gameOverText == null) return;
         gameOverPanel.SetActive(true);
         gameOverText.text = won ? "You Win!" : "You Lose\n<size=36>Press R to restart</size>";
     }

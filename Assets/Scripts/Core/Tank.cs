@@ -195,7 +195,7 @@ public class Tank : MonoBehaviour
         float frac = c.hp / c.maxHP;
         if (frac > 0.2f || !IsAlive) { sr.color = baseColor; return; }
         float urgency = 1f - Mathf.Clamp01(frac / 0.2f); // 0 at 20%, 1 at 0%
-        float blinksPerSecond = Mathf.Lerp(2f, 12f, urgency);
+        float blinksPerSecond = Mathf.Lerp(1f, 6f, urgency);
         bool on = (Time.time * blinksPerSecond) % 1f < 0.5f;
         sr.color = on ? Color.white : baseColor;
     }

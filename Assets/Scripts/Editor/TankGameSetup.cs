@@ -59,6 +59,7 @@ public static class TankGameSetup
 
         // --- UI ---
         var ui = BuildUI();
+        BuildGameOverCanvas(ui);
         var es = new GameObject("EventSystem");
         es.AddComponent<EventSystem>();
         es.AddComponent<StandaloneInputModule>();
@@ -484,7 +485,24 @@ public static class TankGameSetup
         help.alignment = TextAnchor.MiddleCenter;
         help.text = "A/D or \u2190/\u2192 move     W/S or \u2191/\u2193 aim     HOLD SPACE charge, RELEASE fire";
 
-        // Game over panel
+        return ui;
+    }
+
+    // Game-over panel on its own canvas, separate from the HUD canvas.
+    // (Large text on the shared canvas caused font-atlas junk glyphs;
+    // the setup menu needed the same isolation.)
+    static void BuildGameOverCanvas(GameUI ui)
+    {
+        Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+
+        var canvasGO = new GameObject("GameOverCanvas");
+        var canvas = canvasGO.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.sortingOrder = 20; // above the setup menu canvas
+        var scaler = canvasGO.AddComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1280f, 720f);
+
         var panel = new GameObject("GameOverPanel");
         panel.transform.SetParent(canvasGO.transform, false);
         var pRT = panel.AddComponent<RectTransform>();
@@ -504,7 +522,8 @@ public static class TankGameSetup
         goText.alignment = TextAnchor.MiddleCenter;
         panel.SetActive(false);
 
-        return ui;
+        ui.gameOverPanel = panel;
+        ui.gameOverText = goText;
     }
 
     static SetupMenu BuildSetupMenu()
