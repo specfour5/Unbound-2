@@ -1,10 +1,10 @@
 using UnityEngine;
 
 /// <summary>
-/// Destructible pixel-art terrain (Terraria-style).
-/// The ground is a grid of chunky square pixels: dark-outlined grass on top
-/// with a jagged edge, speckled dirt below. Explosions knock out pixels in a
-/// circle, leaving blocky craters. Collision follows the pixel tops.
+/// Destructible smooth terrain.
+/// The ground is simulated on a coarse grid (explosions knock out circles,
+/// collision follows column tops), but rendered as smooth layered strips that
+/// follow the surface: turf lip, grass, topsoil, dirt, deep earth.
 /// </summary>
 [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer), typeof(EdgeCollider2D))]
 public class Terrain : MonoBehaviour
@@ -26,8 +26,8 @@ public class Terrain : MonoBehaviour
     [Tooltip("0 = random every play. Any other value = same hills every time.")]
     public int seed = 42;
 
-    [Header("Pixel look")]
-    [Tooltip("World units per pixel. Smaller = finer grain.")]
+    [Header("Simulation grid")]
+    [Tooltip("World units per sim cell. Smaller = finer crater edges. Rendering is smooth regardless.")]
     public float pixelSize = 0.15f;
 
     [Header("Spawn flattening")]
@@ -35,7 +35,6 @@ public class Terrain : MonoBehaviour
         new System.Collections.Generic.List<FlattenSpot>();
 
     // Pixel palette (sampled from the reference look).
-    static readonly Color Outline = new Color(0.10f, 0.13f, 0.10f);
     static readonly Color GrassBase = new Color(0.32f, 0.72f, 0.26f);
     static readonly Color GrassLight = new Color(0.46f, 0.83f, 0.34f);
     static readonly Color GrassDark = new Color(0.22f, 0.55f, 0.20f);
@@ -247,21 +246,61 @@ public class Terrain : MonoBehaviour
     /// <summary>How many pixels deep the grass runs in a column (jagged edge).</summary>
     static int GrassDepth(int c) => 2 + (int)(Hash01(c, 777) * 2.999f);
 
-    Color PixelColor(int c, int r, int depthPx)
+    /// <summary>
+    /// Vertex color for a smooth-terrain band strip (0 = turf lip … 4 = deep
+    /// earth). v = 0 at the band's top edge, 1 at its bottom.
+    /// </summary>
+    Color BandColor(int band, int i, float v, bool scorched, bool stone)
     {
-        float h1 = Hash01(c * 3 + 1, r * 7 + 2);
-        if (depthPx < GrassDepth(c))
+        if (scorched && band <= 2)
         {
-            if (h1 < 0.15f) return GrassLight;
-            if (h1 > 0.85f) return GrassDark;
-            return GrassBase * (0.95f + 0.10f * h1);
+            // Blast-charred surface: dark mottled char, never grass.
+            return ScorchedColor(i, band) * (v < 0.5f ? 1f : 0.85f);
         }
-        Color d;
-        if (h1 < 0.13f) d = DirtDark;
-        else if (h1 < 0.26f) d = DirtLight;
-        else d = DirtBase * (0.94f + 0.12f * h1);
-        // Strong darkening with depth for a rich underground feel.
-        return d * (1f - 0.5f * Mathf.Min(1f, depthPx / 22f));
+        if (stone && band <= 1)
+        {
+            // Blast-exposed rock instead of grass.
+            return StoneColor(i, band) * (v < 0.5f ? 1f : 0.85f);
+        }
+        float h = Hash01(i * 3 + 1, band * 7 + 2);
+        float variation = 0.92f + 0.16f * h;
+        Color top, bot;
+        switch (band)
+        {
+            case 0: // turf lip: dark crisp surface line
+                top = new Color(0.13f, 0.30f, 0.12f);
+                bot = new Color(0.20f, 0.44f, 0.17f);
+                break;
+            case 1: // grass
+                top = GrassBase;
+                bot = GrassDark;
+                break;
+            case 2: // topsoil
+                top = new Color(0.55f, 0.38f, 0.23f);
+                bot = new Color(0.46f, 0.30f, 0.18f);
+                break;
+            case 3: // dirt
+                top = DirtBase;
+                bot = DirtDark;
+                break;
+            default: // deep earth
+                top = new Color(0.33f, 0.21f, 0.13f);
+                bot = new Color(0.15f, 0.10f, 0.06f);
+                break;
+        }
+        Color c = Color.Lerp(top, bot, v) * variation;
+        // Fine speckle keeps the soil organic at high resolution.
+        if (band >= 2)
+        {
+            if (h < 0.12f) c *= 0.78f;
+            else if (h > 0.88f) c = Color.Lerp(c, DirtLight, 0.5f);
+        }
+        else if (band == 1)
+        {
+            if (h < 0.15f) c = Color.Lerp(c, GrassLight, 0.6f);
+            else if (h > 0.85f) c = Color.Lerp(c, GrassDark, 0.6f);
+        }
+        return c;
     }
 
     /// <summary>Charred blast-crater pixels: dark, mottled, never grass.</summary>
@@ -287,8 +326,7 @@ public class Terrain : MonoBehaviour
         if (mesh == null)
         {
             mesh = new Mesh { name = "TerrainMesh" };
-            // The pixel grid exceeds 65k verts (480x48 quads); 16-bit index
-            // format would silently truncate the mesh.
+            // Keep 32-bit indices so the strip meshes never hit the 65k vertex cap.
             mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
             GetComponent<MeshFilter>().mesh = mesh;
         }
@@ -296,63 +334,89 @@ public class Terrain : MonoBehaviour
 
         RefreshTops();
 
-        int count = 0;
-        for (int c = 0; c < cols; c++)
-            for (int r = 0; r < rows; r++)
-                if (solid[c, r]) count++;
+        // ---- smooth surface line: Catmull-Rom through the column tops ----
+        const int SUB = 4; // surface subdivisions per sim column
+        int n = cols * SUB + 1;
+        float dx = width / (n - 1);
+        float[] colTop = new float[cols];
+        for (int c = 0; c < cols; c++) colTop[c] = SurfaceY(c);
 
-        var verts = new Vector3[count * 4];
-        var colors = new Color[count * 4];
-        var uvs = new Vector2[count * 4];
-        var tris = new int[count * 6];
-
-        int q = 0;
-        for (int c = 0; c < cols; c++)
+        float[] surfY = new float[n];
+        bool[] surfScorched = new bool[n];
+        bool[] surfStone = new bool[n];
+        for (int i = 0; i < n; i++)
         {
-            float x0 = LeftX + c * pixelSize;
-            float x1 = x0 + pixelSize;
-            for (int r = 0; r < rows; r++)
+            float x = LeftX + i * dx;
+            float fc = Mathf.Clamp((x - LeftX) / pixelSize - 0.5f, 0f, cols - 1.001f);
+            int c0 = Mathf.Min(Mathf.FloorToInt(fc), cols - 2);
+            float fr = fc - Mathf.Floor(fc);
+            float p0 = colTop[Mathf.Max(0, c0 - 1)];
+            float p1 = colTop[c0];
+            float p2 = colTop[c0 + 1];
+            float p3 = colTop[Mathf.Min(cols - 1, c0 + 2)];
+            float fr2 = fr * fr, fr3 = fr2 * fr;
+            float y = 0.5f * (2f * p1 + (-p0 + p2) * fr
+                + (2f * p0 - 5f * p1 + 4f * p2 - p3) * fr2
+                + (-p0 + 3f * p1 - 3f * p2 + p3) * fr3);
+            // Never overshoot the neighboring column tops: no ringing on crater walls.
+            surfY[i] = Mathf.Clamp(y, Mathf.Min(p1, p2), Mathf.Max(p1, p2));
+
+            int c = Mathf.Clamp(Mathf.RoundToInt((x - LeftX) / pixelSize - 0.5f), 0, cols - 1);
+            int top = topRow[c];
+            bool sc = top >= 0 && scorched[c, top];
+            surfScorched[i] = sc;
+            surfStone[i] = !sc && top >= 0 &&
+                (stone[c, top] || (top - 1 >= 0 && stone[c, top - 1]));
+        }
+
+        // ---- slope shading: steep faces catch less light, gives the hills form ----
+        float[] shade = new float[n];
+        for (int i = 0; i < n; i++)
+        {
+            int a = Mathf.Max(0, i - 1), b2 = Mathf.Min(n - 1, i + 1);
+            float slope = Mathf.Abs(surfY[b2] - surfY[a]) / Mathf.Max(1e-4f, (b2 - a) * dx);
+            shade[i] = 1f - 0.18f * Mathf.Min(1f, slope * 0.8f);
+        }
+
+        // ---- layered strips following the surface (offsets below it) ----
+        float[] bandTop = { 0f, -0.10f, -0.50f, -1.60f, -3.40f };
+        float[] bandBot = { -0.10f, -0.50f, -1.60f, -3.40f, -100f };
+        int nb = bandTop.Length;
+
+        var verts = new Vector3[nb * n * 2];
+        var colors = new Color[nb * n * 2];
+        var tris = new int[nb * (n - 1) * 6];
+
+        for (int b = 0; b < nb; b++)
+        {
+            int vb = b * n * 2;
+            for (int i = 0; i < n; i++)
             {
-                if (!solid[c, r]) continue;
-                float y0 = gridY0 + r * pixelSize;
-                float y1 = y0 + pixelSize;
-                int depthPx = topRow[c] - r;
-                bool isSurface = depthPx == 0;
-                bool isScorched = scorched[c, r];
-                bool isStone = stone[c, r];
-                Color body = isScorched ? ScorchedColor(c, r)
-                           : isStone ? StoneColor(c, r)
-                           : PixelColor(c, r, depthPx);
-
-                int v = q * 4;
-                verts[v] = new Vector3(x0, y1, 0);
-                verts[v + 1] = new Vector3(x1, y1, 0);
-                verts[v + 2] = new Vector3(x0, y0, 0);
-                verts[v + 3] = new Vector3(x1, y0, 0);
-                // Dark outline along the very top of fresh grass only.
-                Color topColor = (isSurface && !isScorched && !isStone) ? Outline : body;
-                colors[v] = topColor;
-                colors[v + 1] = topColor;
-                colors[v + 2] = body;
-                colors[v + 3] = body;
-                uvs[v] = new Vector2(0, 1);
-                uvs[v + 1] = new Vector2(1, 1);
-                uvs[v + 2] = new Vector2(0, 0);
-                uvs[v + 3] = new Vector2(1, 0);
-
-                int t = q * 6;
-                tris[t] = v; tris[t + 1] = v + 2; tris[t + 2] = v + 1;
-                tris[t + 3] = v + 1; tris[t + 4] = v + 2; tris[t + 5] = v + 3;
-                q++;
+                float x = LeftX + i * dx;
+                float yt = Mathf.Max(surfY[i] + bandTop[b], gridY0);
+                float yb = Mathf.Max(surfY[i] + bandBot[b], gridY0);
+                verts[vb + i * 2] = new Vector3(x, yt, 0);
+                verts[vb + i * 2 + 1] = new Vector3(x, yb, 0);
+                colors[vb + i * 2] = BandColor(b, i, 0f, surfScorched[i], surfStone[i]) * shade[i];
+                colors[vb + i * 2 + 1] = BandColor(b, i, 1f, surfScorched[i], surfStone[i]) * shade[i];
+            }
+            int tb = b * (n - 1) * 6;
+            for (int i = 0; i < n - 1; i++)
+            {
+                int v0 = vb + i * 2;     // top_i
+                int v1 = v0 + 2;         // top_{i+1}
+                int v2 = v0 + 1;         // bottom_i
+                int v3 = v0 + 3;         // bottom_{i+1}
+                int t = tb + i * 6;
+                tris[t] = v0; tris[t + 1] = v2; tris[t + 2] = v1;
+                tris[t + 3] = v1; tris[t + 4] = v2; tris[t + 5] = v3;
             }
         }
 
         mesh.Clear();
         mesh.vertices = verts;
         mesh.colors = colors;
-        mesh.uv = uvs;
         mesh.triangles = tris;
-        mesh.RecalculateNormals();
         mesh.RecalculateBounds();
 
         var pts = new Vector2[cols];
