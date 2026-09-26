@@ -16,6 +16,10 @@ public class TurnManager : MonoBehaviour
     [Header("Rules")]
     public float turnTime = 30f;
     public float maxWind = 4f;
+    [Tooltip("Scales the wind roll each turn; 0 = no wind. Set by the setup menu.")]
+    public float windMultiplier = 1f;
+    [Tooltip("If false, the setup menu starts the game via BeginGame().")]
+    public bool startOnAwake = true;
     [Tooltip("Extra settle time after the shell explodes before the next turn.")]
     public float resolveDelay = 2.2f;
 
@@ -25,6 +29,7 @@ public class TurnManager : MonoBehaviour
     public bool IsResolving { get; private set; }
 
     bool gameOver;
+    bool gameStarted;
     bool projectileResolved;
     int turnIndex = -1;
 
@@ -32,6 +37,14 @@ public class TurnManager : MonoBehaviour
     {
         foreach (var t in tanks)
             t.Setup(this, terrain);
+        if (startOnAwake) BeginGame();
+    }
+
+    /// <summary>Starts the turn loop (called by the setup menu when the player is ready).</summary>
+    public void BeginGame()
+    {
+        if (gameStarted || gameOver) return;
+        gameStarted = true;
         StartCoroutine(GameLoop());
     }
 
@@ -58,7 +71,7 @@ public class TurnManager : MonoBehaviour
     IEnumerator RunTurn(Tank tank)
     {
         CurrentTank = tank;
-        Wind = Random.Range(-maxWind, maxWind);
+        Wind = Random.Range(-maxWind, maxWind) * windMultiplier;
         TimeLeft = turnTime;
         IsResolving = false;
         projectileResolved = false;

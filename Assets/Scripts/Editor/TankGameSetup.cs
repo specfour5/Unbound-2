@@ -71,6 +71,12 @@ public static class TankGameSetup
         tm.tanks = new List<Tank> { player, enemy };
         ui.turnManager = tm;
 
+        // --- Setup menu (pre-game options; starts the game on Start click) ---
+        var menu = BuildSetupMenu(ui.gameObject);
+        menu.turnManager = tm;
+        menu.terrain = terrain;
+        tm.startOnAwake = false;
+
         EditorSceneManager.SaveScene(scene, "Assets/Scenes/TankGame.unity");
         EditorUtility.DisplayDialog("Tanks", "Scene built and saved as TankGame.unity.\nPress Play!", "Let's go");
     }
@@ -285,6 +291,38 @@ public static class TankGameSetup
         return t;
     }
 
+    static Button MakeButton(string name, Transform parent, string text, Font font,
+        int fontSize, Vector2 anchoredPos, Vector2 size)
+    {
+        var go = new GameObject(name);
+        go.transform.SetParent(parent, false);
+        var rt = go.AddComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0.5f, 0.5f);
+        rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = anchoredPos;
+        rt.sizeDelta = size;
+        var img = go.AddComponent<Image>();
+        img.sprite = Art.CenteredWhite;
+        img.color = new Color(0.22f, 0.24f, 0.28f);
+        var btn = go.AddComponent<Button>();
+
+        var tgo = new GameObject("Text");
+        tgo.transform.SetParent(go.transform, false);
+        var trt = tgo.AddComponent<RectTransform>();
+        trt.anchorMin = Vector2.zero;
+        trt.anchorMax = Vector2.one;
+        trt.offsetMin = Vector2.zero;
+        trt.offsetMax = Vector2.zero;
+        var t = tgo.AddComponent<Text>();
+        t.font = font;
+        t.fontSize = fontSize;
+        t.alignment = TextAnchor.MiddleCenter;
+        t.color = Color.white;
+        t.text = text;
+        return btn;
+    }
+
     static GameUI BuildUI()
     {
         var canvasGO = new GameObject("GameUI");
@@ -429,5 +467,73 @@ public static class TankGameSetup
         panel.SetActive(false);
 
         return ui;
+    }
+
+    static SetupMenu BuildSetupMenu(GameObject canvasGO)
+    {
+        Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+
+        var dim = new GameObject("SetupMenu");
+        dim.transform.SetParent(canvasGO.transform, false);
+        var dimRT = dim.AddComponent<RectTransform>();
+        dimRT.anchorMin = Vector2.zero;
+        dimRT.anchorMax = Vector2.one;
+        dimRT.offsetMin = Vector2.zero;
+        dimRT.offsetMax = Vector2.zero;
+        var dimImg = dim.AddComponent<Image>();
+        dimImg.sprite = Art.CenteredWhite;
+        dimImg.color = new Color(0f, 0f, 0f, 0.72f);
+
+        var box = new GameObject("Box");
+        box.transform.SetParent(dim.transform, false);
+        var boxRT = box.AddComponent<RectTransform>();
+        boxRT.anchorMin = new Vector2(0.5f, 0.5f);
+        boxRT.anchorMax = new Vector2(0.5f, 0.5f);
+        boxRT.pivot = new Vector2(0.5f, 0.5f);
+        boxRT.sizeDelta = new Vector2(720f, 500f);
+        var boxImg = box.AddComponent<Image>();
+        boxImg.sprite = Art.CenteredWhite;
+        boxImg.color = new Color(0.10f, 0.11f, 0.14f, 0.97f);
+
+        var title = MakeLabel("Title", box.transform, 0f, font, 44);
+        var titleRT = title.GetComponent<RectTransform>();
+        titleRT.anchoredPosition = new Vector2(0f, 195f);
+        titleRT.sizeDelta = new Vector2(600f, 60f);
+        title.text = "BATTLE SETUP";
+
+        var windLabel = MakeLabel("WindLabel", box.transform, 0f, font, 24);
+        windLabel.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, 125f);
+        windLabel.text = "WIND";
+
+        var windButtons = new Button[SetupMenu.WindNames.Length];
+        for (int i = 0; i < windButtons.Length; i++)
+        {
+            float x = (i - (windButtons.Length - 1) / 2f) * 136f;
+            windButtons[i] = MakeButton("Wind_" + SetupMenu.WindNames[i], box.transform,
+                SetupMenu.WindNames[i], font, 20, new Vector2(x, 75f), new Vector2(128f, 46f));
+        }
+
+        var spawnLabel = MakeLabel("SpawnLabel", box.transform, 0f, font, 24);
+        spawnLabel.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, 5f);
+        spawnLabel.text = "SPAWN DISTANCE";
+
+        var spawnButtons = new Button[SetupMenu.SpawnNames.Length];
+        for (int i = 0; i < spawnButtons.Length; i++)
+        {
+            float x = (i - (spawnButtons.Length - 1) / 2f) * 158f;
+            spawnButtons[i] = MakeButton("Spawn_" + SetupMenu.SpawnNames[i], box.transform,
+                SetupMenu.SpawnNames[i], font, 20, new Vector2(x, -45f), new Vector2(150f, 46f));
+        }
+
+        var start = MakeButton("StartButton", box.transform, "START BATTLE", font, 30,
+            new Vector2(0f, -160f), new Vector2(300f, 64f));
+        start.GetComponent<Image>().color = new Color(0.25f, 0.62f, 0.32f);
+
+        var menu = dim.AddComponent<SetupMenu>();
+        menu.panel = dim;
+        menu.windButtons = windButtons;
+        menu.spawnButtons = spawnButtons;
+        menu.startButton = start;
+        return menu;
     }
 }
