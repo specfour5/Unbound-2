@@ -150,7 +150,7 @@ public class Tank : MonoBehaviour
                     if (allFonts.Length > 0) healthText.font = allFonts[0];
                 }
             }
-            healthText.characterSize = 0.02f;
+            healthText.characterSize = 0.05f;
             Debug.Log($"[Tank] Setup HP text: font={(healthText.font != null ? healthText.font.name : "NULL")} " +
                       $"charSize={healthText.characterSize} text='{healthText.text}'");
         }
