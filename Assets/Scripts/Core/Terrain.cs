@@ -45,6 +45,7 @@ public class Terrain : MonoBehaviour
 
     bool[,] solid;
     bool[,] scorched; // blast-charred pixels: never regrow grass
+    bool[,] stone;    // blast-exposed rock: grey instead of grass
     int cols, rows;
     float gridY0;
     int[] topRow; // topmost solid row per column (-1 = empty)
@@ -74,6 +75,7 @@ public class Terrain : MonoBehaviour
         rows = Mathf.CeilToInt((16f - gridY0) / pixelSize);
         solid = new bool[cols, rows];
         scorched = new bool[cols, rows];
+        stone = new bool[cols, rows];
         topRow = new int[cols];
 
         float p1 = (float)rng.NextDouble() * Mathf.PI * 2f;
@@ -169,6 +171,7 @@ public class Terrain : MonoBehaviour
     {
         if (solid == null) return;
         int[] oldTop = (int[])topRow.Clone();
+        bool[] colHit = new bool[cols];
         int c0 = Mathf.Max(0, ColumnAt(center.x - radius));
         int c1 = Mathf.Min(cols - 1, ColumnAt(center.x + radius));
         int r0 = Mathf.Max(0, Mathf.FloorToInt((center.y - radius - gridY0) / pixelSize));
@@ -180,8 +183,11 @@ public class Terrain : MonoBehaviour
                 float px = LeftX + (c + 0.5f) * pixelSize;
                 float py = gridY0 + (r + 0.5f) * pixelSize;
                 float dx = px - center.x, dy = py - center.y;
-                if (dx * dx + dy * dy <= r2)
+                if (dx * dx + dy * dy <= r2 && solid[c, r])
+                {
                     solid[c, r] = false;
+                    colHit[c] = true;
+                }
             }
         // Scorch the freshly exposed surface instead of regrowing grass.
         for (int c = c0; c <= c1; c++)
@@ -193,6 +199,22 @@ public class Terrain : MonoBehaviour
             {
                 scorched[c, nt] = true;
                 if (nt - 1 >= 0) scorched[c, nt - 1] = true;
+            }
+        }
+        // Any grass left clinging to the blast zone becomes exposed stone.
+        for (int c = c0; c <= c1; c++)
+        {
+            if (!colHit[c]) continue;
+            int top = -1;
+            for (int r = rows - 1; r >= 0; r--)
+                if (solid[c, r]) { top = r; break; }
+            if (top < 0) continue;
+            int gd = GrassDepth(c);
+            for (int k = 0; k < 3 && top - k >= 0; k++)
+            {
+                int r = top - k;
+                if (!solid[c, r] || scorched[c, r] || stone[c, r]) continue;
+                if (k < gd) stone[c, r] = true;
             }
         }
         Rebuild();
@@ -235,6 +257,15 @@ public class Terrain : MonoBehaviour
         return new Color(0.22f, 0.16f, 0.12f) * (0.92f + 0.16f * h1);
     }
 
+    /// <summary>Blast-exposed rock: neutral grey stone instead of grass.</summary>
+    static Color StoneColor(int c, int r)
+    {
+        float h1 = Hash01(c * 9 + 5, r * 13 + 11);
+        if (h1 < 0.20f) return new Color(0.40f, 0.40f, 0.43f);
+        if (h1 < 0.40f) return new Color(0.62f, 0.62f, 0.65f);
+        return new Color(0.51f, 0.51f, 0.54f) * (0.92f + 0.16f * h1);
+    }
+
     void Rebuild()
     {
         if (mesh == null)
@@ -269,16 +300,18 @@ public class Terrain : MonoBehaviour
                 int depthPx = topRow[c] - r;
                 bool isSurface = depthPx == 0;
                 bool isScorched = scorched[c, r];
+                bool isStone = stone[c, r];
                 Color body = isScorched ? ScorchedColor(c, r)
-                                        : PixelColor(c, r, depthPx);
+                           : isStone ? StoneColor(c, r)
+                           : PixelColor(c, r, depthPx);
 
                 int v = q * 4;
                 verts[v] = new Vector3(x0, y1, 0);
                 verts[v + 1] = new Vector3(x1, y1, 0);
                 verts[v + 2] = new Vector3(x0, y0, 0);
                 verts[v + 3] = new Vector3(x1, y0, 0);
-                // Dark outline along the very top of fresh grass (not on scorch).
-                Color topColor = (isSurface && !isScorched) ? Outline : body;
+                // Dark outline along the very top of fresh grass only.
+                Color topColor = (isSurface && !isScorched && !isStone) ? Outline : body;
                 colors[v] = topColor;
                 colors[v + 1] = topColor;
                 colors[v + 2] = body;
