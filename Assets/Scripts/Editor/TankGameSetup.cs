@@ -307,18 +307,9 @@ public static class TankGameSetup
         img.color = new Color(0.22f, 0.24f, 0.28f);
         var btn = go.AddComponent<Button>();
 
-        var tgo = new GameObject("Text");
-        tgo.transform.SetParent(go.transform, false);
-        var trt = tgo.AddComponent<RectTransform>();
-        trt.anchorMin = Vector2.zero;
-        trt.anchorMax = Vector2.one;
-        trt.offsetMin = Vector2.zero;
-        trt.offsetMax = Vector2.zero;
-        var t = tgo.AddComponent<Text>();
-        t.font = font;
-        t.fontSize = fontSize;
-        t.alignment = TextAnchor.MiddleCenter;
-        t.color = Color.white;
+        var t = MakeLabel(name + "_Label", go.transform, 0f, font, fontSize);
+        var trt = t.GetComponent<RectTransform>();
+        trt.sizeDelta = new Vector2(size.x - 8f, size.y - 6f);
         t.text = text;
         return btn;
     }
@@ -495,13 +486,13 @@ public static class TankGameSetup
         boxImg.sprite = Art.CenteredWhite;
         boxImg.color = new Color(0.10f, 0.11f, 0.14f, 0.97f);
 
-        var title = MakeLabel("Title", box.transform, 0f, font, 44);
+        var title = MakeLabel("Title", box.transform, 0f, font, 22);
         var titleRT = title.GetComponent<RectTransform>();
         titleRT.anchoredPosition = new Vector2(0f, 195f);
         titleRT.sizeDelta = new Vector2(600f, 60f);
         title.text = "BATTLE SETUP";
 
-        var windLabel = MakeLabel("WindLabel", box.transform, 0f, font, 24);
+        var windLabel = MakeLabel("WindLabel", box.transform, 0f, font, 22);
         windLabel.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, 125f);
         windLabel.text = "WIND";
 
@@ -510,10 +501,10 @@ public static class TankGameSetup
         {
             float x = (i - (windButtons.Length - 1) / 2f) * 136f;
             windButtons[i] = MakeButton("Wind_" + SetupMenu.WindNames[i], box.transform,
-                SetupMenu.WindNames[i], font, 20, new Vector2(x, 75f), new Vector2(128f, 46f));
+                SetupMenu.WindNames[i], font, 22, new Vector2(x, 75f), new Vector2(128f, 46f));
         }
 
-        var spawnLabel = MakeLabel("SpawnLabel", box.transform, 0f, font, 24);
+        var spawnLabel = MakeLabel("SpawnLabel", box.transform, 0f, font, 22);
         spawnLabel.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, 5f);
         spawnLabel.text = "SPAWN DISTANCE";
 
@@ -522,10 +513,10 @@ public static class TankGameSetup
         {
             float x = (i - (spawnButtons.Length - 1) / 2f) * 158f;
             spawnButtons[i] = MakeButton("Spawn_" + SetupMenu.SpawnNames[i], box.transform,
-                SetupMenu.SpawnNames[i], font, 20, new Vector2(x, -45f), new Vector2(150f, 46f));
+                SetupMenu.SpawnNames[i], font, 22, new Vector2(x, -45f), new Vector2(150f, 46f));
         }
 
-        var start = MakeButton("StartButton", box.transform, "START BATTLE", font, 30,
+        var start = MakeButton("StartButton", box.transform, "START BATTLE", font, 22,
             new Vector2(0f, -160f), new Vector2(300f, 64f));
         start.GetComponent<Image>().color = new Color(0.25f, 0.62f, 0.32f);
 
