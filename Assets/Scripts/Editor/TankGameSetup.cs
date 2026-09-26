@@ -262,6 +262,7 @@ public static class TankGameSetup
         tm.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         tm.fontSize = 64;
         tm.characterSize = 0.05f;
+        tm.fontStyle = FontStyle.Bold;
         tm.anchor = TextAnchor.MiddleCenter;
         tm.alignment = TextAlignment.Center;
         tm.color = Color.white;
