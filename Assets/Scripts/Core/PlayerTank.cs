@@ -41,6 +41,8 @@ public class PlayerTank : Tank
 
         // Hold SPACE to charge the shot, release to fire. Power ramps from
         // min to max over maxChargeTime seconds; holding longer stays at max.
+        // The ramp is eased (slow at first, faster near full), so the power
+        // bar and the aim preview both fill on that curve.
         // The aim preview arc grows live as the charge builds.
         if (Input.GetKeyDown(KeyCode.Space) && !charging)
         {
@@ -53,7 +55,8 @@ public class PlayerTank : Tank
             if (Input.GetKey(KeyCode.Space))
             {
                 chargeTime = Mathf.Min(chargeTime + Time.deltaTime, maxChargeTime);
-                power = Mathf.Lerp(minPower, maxPower, Charge01);
+                float eased = Charge01 * Charge01;
+                power = Mathf.Lerp(minPower, maxPower, eased);
             }
             else
             {
