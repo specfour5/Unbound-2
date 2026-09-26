@@ -43,6 +43,8 @@ public class Tank : MonoBehaviour
     public float trackTipExtra = 0.2f;
     [Tooltip("Height of the sloped track tips above the flat track bottom. Tips ignore smaller bumps.")]
     public float trackTipClearance = 0.12f;
+    [Tooltip("Contact sample smoothing radius. Single-pixel steps inside this get absorbed instead of popping the hull.")]
+    public float contactSmoothRadius = 0.15f;
     [Tooltip("Rest height of the tank origin above the ground surface.")]
     public float rideHeight = 0.45f;
     [Tooltip("How much the leading track may climb over small pixels instead of digging in.")]
@@ -265,18 +267,28 @@ public class Tank : MonoBehaviour
     /// Each end blends its flat contact patch with the sloped track tip just
     /// beyond it: the tip only lifts the hull once the ground there rises past
     /// the tip's clearance, so the nose starts climbing bumps smoothly instead
-    /// of either clipping them or popping up early.
+    /// of either clipping them or popping up early. Every sample is a small
+    /// 3-tap average so single-pixel steps are absorbed (the track sinks into
+    /// them) rather than jerking the hull.
     /// </summary>
     void SampleTrackContacts(float x, out float lead, out float trail)
     {
         if (terrain == null) { lead = trail = 0f; return; }
         float tipSpread = probeHalfWidth + trackTipExtra;
-        float flatLead = terrain.GetHeightAt(x + facing * probeHalfWidth);
-        float flatTrail = terrain.GetHeightAt(x - facing * probeHalfWidth);
-        float tipLead = terrain.GetHeightAt(x + facing * tipSpread);
-        float tipTrail = terrain.GetHeightAt(x - facing * tipSpread);
+        float flatLead = SampleGroundSmooth(x + facing * probeHalfWidth);
+        float flatTrail = SampleGroundSmooth(x - facing * probeHalfWidth);
+        float tipLead = SampleGroundSmooth(x + facing * tipSpread);
+        float tipTrail = SampleGroundSmooth(x - facing * tipSpread);
         lead = Mathf.Max(flatLead, tipLead - trackTipClearance);
         trail = Mathf.Max(flatTrail, tipTrail - trackTipClearance);
+    }
+
+    float SampleGroundSmooth(float x)
+    {
+        float r = contactSmoothRadius;
+        return (terrain.GetHeightAt(x - r)
+              + terrain.GetHeightAt(x) * 2f
+              + terrain.GetHeightAt(x + r)) * 0.25f;
     }
 
     /// <summary>
