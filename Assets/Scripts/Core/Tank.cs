@@ -29,7 +29,6 @@ public class Tank : MonoBehaviour
     public float angle = 45f;
     public float power = 18f;
     public float angleAdjustSpeed = 45f;
-    public float powerAdjustSpeed = 14f;
     public GameObject projectileTemplate;
 
     [Header("Scene refs (wired by the setup script)")]
@@ -140,12 +139,6 @@ public class Tank : MonoBehaviour
         if (!CanAim()) return;
         angle = Mathf.Clamp(angle + delta, minAngle, maxAngle);
         UpdateBarrel();
-    }
-
-    public void AdjustPower(float delta)
-    {
-        if (!CanAim()) return;
-        power = Mathf.Clamp(power + delta, minPower, maxPower);
     }
 
     bool CanAim() => IsMyTurn && !HasFired && IsAlive;

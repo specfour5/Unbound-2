@@ -25,8 +25,8 @@ keyboard input.
 |---|---|
 | A/D or ←/→ | Drive (uses fuel) |
 | W/S or ↑/↓ | Turret angle |
-| Q/E | Shot power |
-| Space | Fire (ends your turn) |
+| Space (hold) | Charge shot: 1.5 s to full power |
+| Space (release) | Fire (ends your turn) |
 | R | Restart after game over |
 
 Turns are 30 seconds. The dotted arc shows where your shell will go,
