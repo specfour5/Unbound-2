@@ -270,6 +270,7 @@ public static class TankGameSetup
         tm.GetComponent<Renderer>().sortingOrder = 7;
 
         tank.healthFill = fsr;
+        tank.healthBG = bgsr;
         tank.healthBarRoot = hb.transform;
         tank.healthText = tm;
 

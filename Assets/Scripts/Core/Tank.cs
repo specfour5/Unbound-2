@@ -52,6 +52,7 @@ public class Tank : MonoBehaviour
     [Tooltip("Uniform base scale of the hull sprite (set by the setup script).")]
     public float hullScale = 1f;
     public SpriteRenderer healthFill;
+    public SpriteRenderer healthBG;
     public Transform healthBarRoot;
     public TextMesh healthText;
     [Tooltip("Renderer for the Hull component (flashes when hull is critical).")]
@@ -128,6 +129,10 @@ public class Tank : MonoBehaviour
         if (hullRenderer != null) hullBaseColor = hullRenderer.color;
         if (turretRenderer != null) turretBaseColor = turretRenderer.color;
         if (weaponRenderer != null) weaponBaseColor = weaponRenderer.color;
+        // Reassign bar sprites at runtime so they always use fresh,
+        // correctly-sized Art sprites even if the scene baked stale ones.
+        if (healthBG != null) healthBG.sprite = Art.CenteredWhite;
+        if (healthFill != null) healthFill.sprite = Art.LeftPivotWhite;
         UpdateHealthBar();
         if (isPlayer) BuildPreviewDots();
     }
