@@ -35,6 +35,10 @@ public class Tank : MonoBehaviour
     public Transform visual;
     public Transform turretPivot;
     public Transform muzzle;
+    [Tooltip("Hull sprite object; flipped on the X axis to face the drive direction.")]
+    public Transform hull;
+    [Tooltip("Uniform base scale of the hull sprite (set by the setup script).")]
+    public float hullScale = 1f;
     public SpriteRenderer healthFill;
     public Transform healthBarRoot;
 
@@ -74,7 +78,7 @@ public class Tank : MonoBehaviour
     {
         turnManager = tm;
         terrain = tr;
-        UpdateBarrel();
+        SetFacing(facing);
         UpdateHealthBar();
         if (isPlayer) BuildPreviewDots();
     }
@@ -97,6 +101,9 @@ public class Tank : MonoBehaviour
     {
         if (IsMyTurn && !HasFired && IsAlive && FuelLeft > 0f && Mathf.Abs(moveInput) > 0.01f)
         {
+            int wantFace = moveInput > 0f ? 1 : -1;
+            if (wantFace != facing) SetFacing(wantFace);
+
             float step = Mathf.Clamp(moveInput, -1f, 1f) * moveSpeed * Time.fixedDeltaTime;
             float nx = Mathf.Clamp(rb.position.x + step, terrain.LeftX + 2f, terrain.RightX - 2f);
             float actual = nx - rb.position.x;
@@ -148,6 +155,15 @@ public class Tank : MonoBehaviour
         if (turretPivot == null) return;
         float z = Mathf.Atan2(AimDir.y, AimDir.x) * Mathf.Rad2Deg;
         turretPivot.rotation = Quaternion.Euler(0f, 0f, z);
+    }
+
+    /// <summary>Turns the hull's front toward a direction (+1 right, -1 left).</summary>
+    public void SetFacing(int dir)
+    {
+        facing = dir >= 0 ? 1 : -1;
+        if (hull != null)
+            hull.localScale = new Vector3(hullScale * facing, hullScale, 1f);
+        UpdateBarrel();
     }
 
     public virtual void Fire()

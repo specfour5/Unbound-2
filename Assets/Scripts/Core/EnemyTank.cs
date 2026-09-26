@@ -41,8 +41,10 @@ public class EnemyTank : Tank
         Tank target = turnManager.GetFirstAliveOpponent(this);
         if (target == null) return;
 
-        Vector2 from = muzzle.position;
         Vector2 to = (Vector2)target.transform.position + Vector2.up * 0.5f;
+        SetFacing(to.x >= transform.position.x ? 1 : -1); // turn the front toward the target
+
+        Vector2 from = muzzle.position;
         float dx = (to.x - from.x) * facing; // forward distance (positive = ahead)
         float dy = to.y - from.y;
         float G = -Physics2D.gravity.y * Projectile.GravityScale;

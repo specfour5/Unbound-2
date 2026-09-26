@@ -6,9 +6,9 @@ angle and shot power, then fire. Then the AI does the same to you.
 
 ## Install
 
-1. Copy the `Assets/Scripts` folder from this pack into your Unity project's
-   `Assets` folder (so you have `Assets/Scripts/Core/...` and
-   `Assets/Scripts/Editor/...`).
+1. Copy the `Assets/Scripts` and `Assets/Sprites` folders from this pack into
+   your Unity project's `Assets` folder (so you have `Assets/Scripts/Core/...`,
+   `Assets/Scripts/Editor/...`, and `Assets/Sprites/...`).
 2. Back in Unity, wait for it to compile.
 3. Menu bar → **Tanks → Build Game Scene**. This generates the whole scene:
    terrain, player tank, enemy tank, camera, HUD, and turn manager, then saves
@@ -37,11 +37,13 @@ including wind.
 ```
 Assets/Scripts/
   Core/
-    Art.cs            Procedural sprites (no art assets needed)
+    Art.cs            Procedural sprites (HUD, dots, effects)
     Terrain.cs        Heightmap terrain: mesh + EdgeCollider2D, crater carving
-    Tank.cs           Base tank: health, fuel movement, aiming, firing, slope tilt
+    Tank.cs           Base tank: health, fuel movement, aiming, firing, slope tilt,
+                      sprite visuals; the hull's front flips toward the drive direction
     PlayerTank.cs     Keyboard input + trajectory preview
     EnemyTank.cs      AI: repositions, solves ballistics, fires with skill-based error
+                      (turns its front toward you before aiming)
     Projectile.cs     Shell physics, wind, explosion (terrain + radial damage)
     ExplosionFX.cs    Procedural flash + sparks
     TurnManager.cs    Turn order, wind rolls, timer, win/lose
@@ -49,7 +51,14 @@ Assets/Scripts/
     GameUI.cs         HUD: power/angle/wind/timer, fuel bar, banners
   Editor/
     TankGameSetup.cs  Tanks → Build Game Scene (builds everything above)
+Assets/Sprites/
+  TankHull.png      Tank hull with treads and a visible front (nose + headlight)
+  TurretDome.png    Turret dome (stays level while the barrel pitches)
+  Barrel.png        Cannon barrel (pitches with the turret)
 ```
+
+Tank sprites are painted near-white so the setup script can tint them team
+colors (green player, red enemy) via `SpriteRenderer.color`.
 
 Key design points:
 

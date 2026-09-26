@@ -99,6 +99,22 @@ public static class TankGameSetup
         }
     }
 
+    const string HullSpritePath = "Assets/Sprites/TankHull.png";
+    const string DomeSpritePath = "Assets/Sprites/TurretDome.png";
+    const string BarrelSpritePath = "Assets/Sprites/Barrel.png";
+
+    /// <summary>Makes sure a tank PNG imports as a Sprite so LoadAssetAtPath finds it.</summary>
+    static void EnsureSprite(string path)
+    {
+        var importer = AssetImporter.GetAtPath(path) as TextureImporter;
+        if (importer == null) return;
+        if (importer.textureType != TextureImporterType.Sprite)
+        {
+            importer.textureType = TextureImporterType.Sprite;
+            importer.SaveAndReimport();
+        }
+    }
+
     static Tank CreateTank(string name, Color color, int facing, bool isPlayer,
         GameObject projTemplate, Terrain terrain, float x)
     {
@@ -108,7 +124,8 @@ public static class TankGameSetup
         var rb = go.AddComponent<Rigidbody2D>();
         rb.freezeRotation = true;
         var col = go.AddComponent<BoxCollider2D>();
-        col.size = new Vector2(2.6f, 1.3f);
+        col.size = new Vector2(2.8f, 1.05f);
+        col.offset = new Vector2(0f, 0.1f);
 
         Tank tank = isPlayer ? (Tank)go.AddComponent<PlayerTank>() : go.AddComponent<EnemyTank>();
         tank.isPlayer = isPlayer;
@@ -120,26 +137,37 @@ public static class TankGameSetup
         visual.transform.SetParent(go.transform, false);
         tank.visual = visual.transform;
 
-        var body = new GameObject("Body");
-        body.transform.SetParent(visual.transform, false);
-        body.transform.localPosition = new Vector3(0f, 0.15f, 0f);
-        body.transform.localScale = new Vector3(2.6f, 1.2f, 1f);
-        var bodySR = body.AddComponent<SpriteRenderer>();
-        bodySR.sprite = Art.CenteredWhite;
-        bodySR.color = color;
-        bodySR.sortingOrder = 2;
+        // ----- Sprite visuals (hull has a visible front; dome stays level; barrel pitches) -----
+        EnsureSprite(HullSpritePath);
+        EnsureSprite(DomeSpritePath);
+        EnsureSprite(BarrelSpritePath);
+        Sprite hullSpr = AssetDatabase.LoadAssetAtPath<Sprite>(HullSpritePath);
+        Sprite domeSpr = AssetDatabase.LoadAssetAtPath<Sprite>(DomeSpritePath);
+        Sprite barrelSpr = AssetDatabase.LoadAssetAtPath<Sprite>(BarrelSpritePath);
+        if (hullSpr == null || domeSpr == null || barrelSpr == null)
+            Debug.LogError("Tanks: missing tank sprites in Assets/Sprites (TankHull/Dome/Barrel.png).");
 
-        foreach (float wx in new float[] { -0.85f, 0.85f })
-        {
-            var wheel = new GameObject("Wheel");
-            wheel.transform.SetParent(visual.transform, false);
-            wheel.transform.localPosition = new Vector3(wx, -0.45f, 0f);
-            wheel.transform.localScale = Vector3.one * 0.75f;
-            var wsr = wheel.AddComponent<SpriteRenderer>();
-            wsr.sprite = Art.CenteredCircle;
-            wsr.color = new Color(0.15f, 0.15f, 0.18f);
-            wsr.sortingOrder = 3;
-        }
+        var hull = new GameObject("Hull");
+        hull.transform.SetParent(visual.transform, false);
+        const float hullK = 0.16374f; // hull content 1710px @100ppu -> 2.8 world units wide
+        hull.transform.localPosition = new Vector3(-facing * hullK * 0.035f, 0.2482f, 0f);
+        hull.transform.localScale = new Vector3(hullK * facing, hullK, 1f);
+        var hullSR = hull.AddComponent<SpriteRenderer>();
+        hullSR.sprite = hullSpr;
+        hullSR.color = color;
+        hullSR.sortingOrder = 2;
+        tank.hull = hull.transform;
+        tank.hullScale = hullK;
+
+        var dome = new GameObject("Dome");
+        dome.transform.SetParent(visual.transform, false);
+        const float domeS = 0.12308f; // dome content 1300px wide -> 1.6 world units
+        dome.transform.localPosition = new Vector3(0f, 1.1808f, 0f);
+        dome.transform.localScale = new Vector3(domeS, domeS, 1f);
+        var domeSR = dome.AddComponent<SpriteRenderer>();
+        domeSR.sprite = domeSpr;
+        domeSR.color = color;
+        domeSR.sortingOrder = 4;
 
         var pivot = new GameObject("TurretPivot");
         pivot.transform.SetParent(visual.transform, false);
@@ -147,9 +175,11 @@ public static class TankGameSetup
 
         var barrel = new GameObject("Barrel");
         barrel.transform.SetParent(pivot.transform, false);
-        barrel.transform.localScale = new Vector3(1.9f, 0.3f, 1f);
+        const float barrelS = 0.07454f; // barrel content 2616px long -> tip lands at 1.95
+        barrel.transform.localPosition = new Vector3(13.08f, 0.285f, 0f);
+        barrel.transform.localScale = new Vector3(barrelS, barrelS, 1f);
         var bsr = barrel.AddComponent<SpriteRenderer>();
-        bsr.sprite = Art.LeftPivotWhite;
+        bsr.sprite = barrelSpr;
         bsr.color = new Color(0.2f, 0.2f, 0.22f);
         bsr.sortingOrder = 3;
 
