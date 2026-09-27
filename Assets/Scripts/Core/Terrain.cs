@@ -65,6 +65,13 @@ public class Terrain : MonoBehaviour
         var renderer = GetComponent<MeshRenderer>();
         if (renderer.sharedMaterial == null)
             renderer.sharedMaterial = new Material(Shader.Find("Sprites/Default"));
+        // The vehicle hull collider ignores terrain: suspension modules probe
+        // the ground and hold the hull up with springs instead. Projectiles
+        // (Default layer) still hit hulls, and hulls still hit each other.
+        int vl = LayerMask.NameToLayer("Vehicle");
+        int tl = LayerMask.NameToLayer("Terrain");
+        if (vl >= 0 && tl >= 0)
+            Physics2D.IgnoreLayerCollision(vl, tl, true);
         Generate();
     }
 
@@ -187,6 +194,19 @@ public class Terrain : MonoBehaviour
     {
         if (solid == null) return baseHeight;
         return SurfaceY(ColumnAt(x));
+    }
+
+    /// <summary>
+    /// True when the given world point is inside solid terrain. Used by the
+    /// vehicle hull bumper probes so the body never interpenetrates crater
+    /// walls (the hull collider no longer touches terrain; wheels probe it).
+    /// </summary>
+    public bool IsSolidAt(float x, float y)
+    {
+        if (solid == null) return false;
+        int r = Mathf.FloorToInt((y - gridY0) / pixelSize);
+        if (r < 0 || r >= rows) return false;
+        return solid[ColumnAt(x), r];
     }
 
     /// <summary>

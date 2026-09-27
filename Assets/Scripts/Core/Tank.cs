@@ -2,11 +2,13 @@ using UnityEngine;
 using System.Collections.Generic;
 
 /// <summary>
-/// Base tank: health, per-turn fuel movement, turret aiming, firing, slope tilting.
+/// Base tank: component health, per-turn fuel, turret aiming, firing.
+/// The hull rides on the Vehicle suspension: sprung wheels hold it up and
+/// drive it, each contributing its own friction at its contact patch.
 /// PlayerTank adds keyboard input, EnemyTank adds AI. Neither should fight this class.
 /// </summary>
 [RequireComponent(typeof(Rigidbody2D), typeof(BoxCollider2D))]
-public class Tank : MonoBehaviour
+public class Tank : Vehicle
 {
     public const float HealthBarW = 3.0f;
     public const float HealthBarH = 0.5f;
@@ -22,54 +24,16 @@ public class Tank : MonoBehaviour
 
     [Header("Identity")]
     public bool isPlayer;
-    [Tooltip("+1 faces right, -1 faces left.")]
-    public int facing = 1;
 
     [Header("Components (hull, turret, weapons each have their own pool)")]
     public List<ComponentSlot> components = new List<ComponentSlot>();
 
     [Header("Stats")]
-    public float moveSpeed = 5f;
     [Tooltip("How many world units the tank may drive per turn.")]
     public float fuelPerTurn = 8f;
     [HideInInspector] public float baseFuelPerTurn = 8f;
     [Tooltip("When true, driving never drains fuel.")]
     public bool unlimitedFuel = false;
-
-    [Header("Ground handling (scale these with hull size)")]
-    [Tooltip("Terrain sample spread, front to back. Match to the track contact patch.")]
-    public float probeHalfWidth = 0.83f;
-    [Tooltip("How far past the flat track ends the sloped track tips reach.")]
-    public float trackTipExtra = 0.2f;
-    [Tooltip("Height of the sloped track tips above the flat track bottom. Tips ignore smaller bumps.")]
-    public float trackTipClearance = 0.12f;
-    [Tooltip("Contact sample smoothing radius. Single-pixel steps inside this get absorbed instead of popping the hull.")]
-    public float contactSmoothRadius = 0.15f;
-    [Tooltip("Rest height of the tank origin above the ground surface.")]
-    public float rideHeight = 0.45f;
-    [Tooltip("How much the leading track may climb over small pixels instead of digging in.")]
-    public float climbForgiveness = 0.35f;
-    public float slopeAlignSpeed = 6f;
-    [Tooltip("Tallest terrain step the tank auto-mounts while driving. Taller walls still block it.")]
-    public float maxStepHeight = 0.45f;
-    [Tooltip("How aggressively the step-up assist hoists the hull onto small steps.")]
-    public float stepUpSharpness = 30f;
-    [Tooltip("How far the lead track must drop below the trail before the tank is considered over an edge (then it falls instead of hovering).")]
-    public float edgeReleaseDrop = 1.0f;
-    [Tooltip("Midpoint discontinuity confirming a real cliff/edge rather than a steep slope.")]
-    public float cliffStep = 0.35f;
-
-    [Header("Weight & inertia")]
-    [Tooltip("Tank mass. Heavier tanks take longer to get rolling and to stop, and glide over terrain edges instead of bobbing.")]
-    public float weight = 1f;
-    [Tooltip("Suspension spring stiffness. Higher = tighter terrain following.")]
-    public float suspensionStiffness = 55f;
-    [Tooltip("Suspension damping. Scaled internally with sqrt(weight) so the ride stays composed at any mass.")]
-    public float suspensionDamping = 11f;
-    [Tooltip("How much the suspension sags under the tank's own weight. Heavier tanks press down harder.")]
-    public float suspensionSag = 0.04f;
-    [Tooltip("Horizontal acceleration at weight 1 (units/s^2).")]
-    public float driveAccel = 14f;
 
     [Header("Weapon")]
     public float minAngle = 5f;
@@ -82,10 +46,11 @@ public class Tank : MonoBehaviour
     public GameObject projectileTemplate;
 
     [Header("Scene refs (wired by the setup script)")]
-    public Transform visual;
+    [Tooltip("All body visuals (hull, turret, wheels, tracks). Hidden on death.")]
+    public GameObject bodyVisuals;
     public Transform turretPivot;
     public Transform muzzle;
-    [Tooltip("Hull sprite object; flipped on the X axis to face the drive direction.")]
+    [Tooltip("Hull body sprite object; flipped on the X axis to face the drive direction.")]
     public Transform hull;
     [Tooltip("Uniform base scale of the hull sprite (set by the setup script).")]
     public float hullScale = 1f;
@@ -100,11 +65,8 @@ public class Tank : MonoBehaviour
     [Tooltip("Renderer for the Cannon component (flashes when cannon is critical).")]
     public SpriteRenderer weaponRenderer;
 
-    protected Rigidbody2D rb;
     protected Collider2D col;
     protected TurnManager turnManager;
-    protected Terrain terrain;
-    protected float moveInput;
 
     Color hullBaseColor = Color.white;
     Color turretBaseColor = Color.white;
@@ -151,9 +113,9 @@ public class Tank : MonoBehaviour
         }
     }
 
-    protected virtual void Awake()
+    protected override void Awake()
     {
-        rb = GetComponent<Rigidbody2D>();
+        base.Awake(); // Vehicle: rigidbody, mass, suspension module list
         col = GetComponent<Collider2D>();
         baseFuelPerTurn = fuelPerTurn;
         if (components != null)
@@ -163,7 +125,7 @@ public class Tank : MonoBehaviour
     public virtual void Setup(TurnManager tm, Terrain tr)
     {
         turnManager = tm;
-        terrain = tr;
+        base.Setup(tr); // Vehicle: terrain + suspension module init
         SetFacing(facing);
         if (hullRenderer != null) hullBaseColor = hullRenderer.color;
         if (turretRenderer != null) turretBaseColor = turretRenderer.color;
@@ -216,81 +178,34 @@ public class Tank : MonoBehaviour
         HidePreview();
     }
 
-    void FixedUpdate()
-    {
-        // Drive on our own turn (before firing). Weight gives the tank inertia:
-        // it accelerates toward the target speed instead of snapping to it, so
-        // heavy tanks take longer to get rolling and glide a little when you
-        // let go. Knockback stays fully physical: it only happens after firing
-        // or on someone else's turn, when this block is off.
-        if (IsMyTurn && !HasFired && IsAlive)
-        {
-            SampleTrackContacts(rb.position.x, out float hLead, out float hTrail);
-            float hMid = terrain != null ? SampleGroundSmooth(rb.position.x) : 0f;
-            // Nose dropped off a real edge (crater/cliff lip): let go so the
-            // tank tips in and falls instead of hovering on the averaged probes.
-            bool overEdge = IsNoseOverEdge(hLead, hTrail, hMid);
-
-            bool wantsMove = !overEdge && (unlimitedFuel || FuelLeft > 0f) && Mathf.Abs(moveInput) > 0.01f;
-            float targetVx = 0f;
-            if (wantsMove)
-            {
-                int wantFace = moveInput > 0f ? 1 : -1;
-                if (wantFace != facing) SetFacing(wantFace);
-                targetVx = Mathf.Clamp(moveInput, -1f, 1f) * moveSpeed;
-            }
-
-            float w = Mathf.Max(weight, 0.05f);
-            float vxPrev = rb.linearVelocity.x; // post-physics: were we actually moving?
-
-            if (!overEdge)
-            {
-                float vx = Mathf.MoveTowards(vxPrev, targetVx, driveAccel / w * Time.fixedDeltaTime);
-
-                float px = rb.position.x;
-                if (terrain != null &&
-                    ((px <= terrain.LeftX + 2f && vx < 0f) || (px >= terrain.RightX - 2f && vx > 0f)))
-                    vx = 0f; // world bounds
-                rb.linearVelocity = new Vector2(vx, rb.linearVelocity.y);
-            }
-            // While over an edge the tank is ballistic: momentum carries it,
-            // no air steering, no fuel burn, no track mud.
-
-            if (wantsMove)
-            {
-                if (!unlimitedFuel)
-                    FuelLeft = Mathf.Max(0f, FuelLeft - Mathf.Abs(rb.linearVelocity.x) * Time.fixedDeltaTime);
-                // Rolling tracks churn the top grass into dark mud.
-                if (Mathf.Abs(rb.linearVelocity.x) > 0.5f && terrain != null)
-                    terrain.MarkTrackMud(rb.position.x - 0.95f, rb.position.x + 0.95f);
-            }
-
-            // Step-up assist engages when pushing but not moving (ramming a riser).
-            bool ramming = wantsMove && Mathf.Abs(vxPrev) < 0.6f;
-            ConstrainToGround(hLead, hTrail, ramming, overEdge);
-        }
-    }
-
-    /// <summary>
-    /// True when the lead track has dropped off a real discontinuity (crater
-    /// lip, cliff) rather than a steep-but-continuous slope: the lead is far
-    /// below the trail AND the midpoint doesn't sit on the average (a slope
-    /// would). While true the tank is unsupported and should fall.
-    /// </summary>
-    bool IsNoseOverEdge(float hLead, float hTrail, float hMid)
-    {
-        if (terrain == null) return false;
-        float avg = (hLead + hTrail) * 0.5f;
-        return (hTrail - hLead) > edgeReleaseDrop
-            && Mathf.Abs(hMid - avg) > cliffStep;
-    }
-
     protected virtual void Update()
     {
-        AlignToSlope();
+        // Gate the drive on turn state; the Vehicle suspension physics does
+        // the rest (spring support, per-wheel friction, slope pitch, falls).
+        driveEnabled = IsMyTurn && !HasFired && IsAlive && (unlimitedFuel || FuelLeft > 0f);
+        if (DriveActive)
+        {
+            int wantFace = moveInput > 0f ? 1 : -1;
+            if (wantFace != facing) SetFacing(wantFace);
+            if (!unlimitedFuel)
+                FuelLeft = Mathf.Max(0f, FuelLeft - Mathf.Abs(ForwardSpeed) * Time.deltaTime);
+        }
+        else if (!driveEnabled)
+        {
+            moveInput = 0f;
+        }
+
         UpdateComponentFlash();
+        // The hull pitches on its suspension now; the health bar floats above
+        // it, upright and at a fixed height, instead of swinging with the body.
+        if (healthBarRoot != null)
+        {
+            healthBarRoot.position = transform.position + new Vector3(0f, 2.2f, 0f);
+            healthBarRoot.rotation = Quaternion.identity;
+        }
+
         // Fell through the terrain or off the side of the world: destroyed.
-        if (IsAlive && (transform.position.y < -11f ||
+        if (IsAlive && terrain != null && (transform.position.y < -11f ||
             Mathf.Abs(transform.position.x) > terrain.width * 0.5f + 10f))
             Die(silent: true);
     }
@@ -318,96 +233,6 @@ public class Tank : MonoBehaviour
         float blinksPerSecond = Mathf.Lerp(1f, 6f, urgency);
         bool on = (Time.time * blinksPerSecond) % 1f < 0.5f;
         sr.color = on ? Color.white : baseColor;
-    }
-
-    /// <summary>
-    /// Effective terrain height under the leading and trailing track runs.
-    /// Each end blends its flat contact patch with the sloped track tip just
-    /// beyond it: the tip only lifts the hull once the ground there rises past
-    /// the tip's clearance, so the nose starts climbing bumps smoothly instead
-    /// of either clipping them or popping up early. Every sample is a small
-    /// 3-tap average so single-pixel steps are absorbed (the track sinks into
-    /// them) rather than jerking the hull.
-    /// </summary>
-    void SampleTrackContacts(float x, out float lead, out float trail)
-    {
-        if (terrain == null) { lead = trail = 0f; return; }
-        float tipSpread = probeHalfWidth + trackTipExtra;
-        float flatLead = SampleGroundSmooth(x + facing * probeHalfWidth);
-        float flatTrail = SampleGroundSmooth(x - facing * probeHalfWidth);
-        float tipLead = SampleGroundSmooth(x + facing * tipSpread);
-        float tipTrail = SampleGroundSmooth(x - facing * tipSpread);
-        lead = Mathf.Max(flatLead, tipLead - trackTipClearance);
-        trail = Mathf.Max(flatTrail, tipTrail - trackTipClearance);
-    }
-
-    float SampleGroundSmooth(float x)
-    {
-        float r = contactSmoothRadius;
-        return (terrain.GetHeightAt(x - r)
-              + terrain.GetHeightAt(x) * 2f
-              + terrain.GetHeightAt(x + r)) * 0.25f;
-    }
-
-    /// <summary>
-    /// Hugs the terrain on the tank's own turn (before firing): height from
-    /// the track contacts, so no bouncing on pixels and no floating.
-    /// The suspension is a real mass-spring-damper, so the tank's weight
-    /// presses it down and smooths out terrain edges as it rolls over them
-    /// instead of jerking the hull. Includes a step-up assist: when driving
-    /// into a small riser faster than the suspension can lift, the hull is
-    /// hoisted onto it instead of sticking on its face. When the nose drops
-    /// off a real edge the constraint lets go entirely and gravity takes the
-    /// tank down. Knockback stays fully physical: it only happens after
-    /// firing or on someone else's turn.
-    /// </summary>
-    void ConstrainToGround(float hLead, float hTrail, bool ramming, bool overEdge)
-    {
-        if (terrain == null) return;
-        if (overEdge) return; // unsupported: don't fight gravity, let it fall in
-
-        float climb = Mathf.Clamp(hLead - hTrail, 0f, climbForgiveness);
-        float w = Mathf.Max(weight, 0.05f);
-        float targetY = (hLead + hTrail) * 0.5f + rideHeight + climb
-                        - suspensionSag * w; // mass presses the suspension down
-
-        // Damping scales with sqrt(weight) so the ride stays composed at any mass;
-        // only the response speed changes (heavier = glides over edges).
-        float damp = suspensionDamping * Mathf.Sqrt(w);
-        float ay = ((targetY - rb.position.y) * suspensionStiffness
-                    - rb.linearVelocity.y * damp) / w;
-        float vy = Mathf.Clamp(rb.linearVelocity.y + ay * Time.fixedDeltaTime, -12f, 12f);
-
-        if (ramming)
-        {
-            // Step the lead track tip faces, corrected for the slope the hull
-            // already sits on (so steady slopes don't count as steps).
-            float leadTrackY = rb.position.y - rideHeight + (hLead - hTrail) * 0.5f;
-            float step = hLead - leadTrackY;
-            if (step > 0.02f && step <= maxStepHeight)
-                vy = Mathf.Max(vy, step * stepUpSharpness);
-        }
-
-        rb.linearVelocity = new Vector2(rb.linearVelocity.x, vy);
-    }
-
-    /// <summary>
-    /// Tilts the visual body to the average inclination between the front and
-    /// rear track contacts (tips included, so the nose starts pitching as the
-    /// sloped track end rides up). Stable on pixel steps and scales with hull
-    /// size via probeHalfWidth (no raycasts).
-    /// </summary>
-    void AlignToSlope()
-    {
-        if (visual == null || terrain == null) return;
-        float x = transform.position.x;
-        SampleTrackContacts(x, out float hLead, out float hTrail);
-        float z = Mathf.Atan2(hLead - hTrail, 2f * probeHalfWidth) * Mathf.Rad2Deg * facing;
-        z = Mathf.Clamp(z, -30f, 30f);
-        Quaternion want = Quaternion.Euler(0f, 0f, z);
-        // Heavier hulls roll into the slope more lazily.
-        visual.rotation = Quaternion.Lerp(visual.rotation, want,
-            1f - Mathf.Exp(-slopeAlignSpeed / Mathf.Sqrt(Mathf.Max(weight, 0.05f)) * Time.deltaTime));
     }
 
     public void AdjustAngle(float delta)
@@ -480,7 +305,7 @@ public class Tank : MonoBehaviour
         if (components != null)
             foreach (var c in components) c.hp = 0f;
         if (!silent) ExplosionFX.Spawn(transform.position, 3.5f);
-        if (visual != null) visual.gameObject.SetActive(false);
+        if (bodyVisuals != null) bodyVisuals.SetActive(false);
         if (healthBarRoot != null) healthBarRoot.gameObject.SetActive(false);
         HidePreview();
         col.enabled = false;
@@ -512,7 +337,7 @@ public class Tank : MonoBehaviour
             var sr = d.AddComponent<SpriteRenderer>();
             sr.sprite = Art.CenteredCircle;
             sr.color = new Color(1f, 1f, 1f, 0.45f);
-            sr.sortingOrder = 4;
+            sr.sortingOrder = 6;
             d.SetActive(false);
             previewDots[i] = d.transform;
         }

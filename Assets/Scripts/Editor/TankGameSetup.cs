@@ -21,8 +21,15 @@ public static class TankGameSetup
 
         EnsureInputBoth();
 
+        // Physics layers: the hull collider ignores terrain (the suspension
+        // probes it instead); projectiles and other vehicles still collide.
+        // Terrain.Awake applies the ignore at runtime via these names.
+        VehicleLayer = EnsureLayer("Vehicle");
+        TerrainLayer = EnsureLayer("Terrain");
+
         // --- Terrain ---
         var terrainGO = new GameObject("Terrain");
+        if (TerrainLayer >= 0) terrainGO.layer = TerrainLayer;
         var terrain = terrainGO.AddComponent<Terrain>();
         terrain.width = 120f;
         terrain.baseHeight = 7f;
@@ -108,14 +115,47 @@ public static class TankGameSetup
     const string HullSpritePath = "Assets/Sprites/TankHull.png";
     const string DomeSpritePath = "Assets/Sprites/TurretDome.png";
     const string BarrelSpritePath = "Assets/Sprites/Barrel.png";
+    const string HullBodySpritePath = "Assets/Sprites/Generated/HullBody.png";
+    const string WheelSpritePath = "Assets/Sprites/Generated/Wheel.png";
 
-    // Draw order for tank parts (higher = nearer the camera). The turret base sits
-    // down inside the hull and is hidden behind it; the barrel emerges from behind
-    // the turret. Future weapons can slot in above (drawn ahead of the tank) or
-    // below (drawn behind it) these values.
-    const int SortBarrel = 2;
-    const int SortDome = 3;
-    const int SortHull = 4;
+    // Draw order for tank parts (higher = nearer the camera). The track band
+    // sits behind the wheels; the wheels tuck behind the hull skirts; the
+    // turret base sits down inside the hull and is hidden behind it; the
+    // barrel emerges from behind the turret. Future weapons can slot in
+    // above (drawn ahead of the tank) or below (drawn behind it) these values.
+    const int SortTrack = 1;
+    const int SortWheel = 2;
+    const int SortBarrel = 3;
+    const int SortDome = 4;
+    const int SortHull = 5;
+
+    static int VehicleLayer = -1;
+    static int TerrainLayer = -1;
+
+    /// <summary>
+    /// Creates a project layer if missing (user layers 8..31). Returns the index.
+    /// </summary>
+    static int EnsureLayer(string name)
+    {
+        int idx = LayerMask.NameToLayer(name);
+        if (idx >= 0) return idx;
+        var assets = AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/TagManager.asset");
+        if (assets == null || assets.Length == 0) return -1;
+        var so = new SerializedObject(assets[0]);
+        var layers = so.FindProperty("layers");
+        for (int i = 8; i < 32; i++)
+        {
+            var sp = layers.GetArrayElementAtIndex(i);
+            if (string.IsNullOrEmpty(sp.stringValue))
+            {
+                sp.stringValue = name;
+                so.ApplyModifiedProperties();
+                return i;
+            }
+        }
+        Debug.LogError("Tanks: no free user layer for '" + name + "'.");
+        return -1;
+    }
 
     /// <summary>
     /// Makes sure a tank PNG imports as one single Sprite so LoadAssetAtPath finds it.
@@ -146,9 +186,14 @@ public static class TankGameSetup
     {
         var go = new GameObject(name);
         go.transform.position = new Vector3(x, terrain.GetHeightAt(x) + 1.5f, 0f);
+        if (VehicleLayer >= 0) go.layer = VehicleLayer;
 
+        // Free-spinning hull on suspension: springs hold it up and pitch it
+        // with the terrain instead of a frozen, script-tilted body.
         var rb = go.AddComponent<Rigidbody2D>();
-        rb.freezeRotation = true;
+        rb.mass = 4.5f;
+        rb.angularDamping = 4f;
+        rb.centerOfMass = new Vector2(0f, -0.35f); // low CoM: self-righting
         var col = go.AddComponent<BoxCollider2D>();
         col.size = new Vector2(2.8f, 1.05f);
         col.offset = new Vector2(0f, 0.1f);
@@ -165,27 +210,36 @@ public static class TankGameSetup
             new Tank.ComponentSlot { name = "Cannon", maxHP = 100f },
         };
         tank.facing = facing;
+        tank.hullMass = 4.5f;
+        tank.maxSpeed = 5f;
         tank.projectileTemplate = projTemplate;
 
-        // Visual root (tilts to the slope; colliders stay put)
-        var visual = new GameObject("Visual");
-        visual.transform.SetParent(go.transform, false);
-        tank.visual = visual.transform;
+        // Body visuals root: everything that pitches with the hull.
+        var bodyVisuals = new GameObject("BodyVisuals");
+        bodyVisuals.transform.SetParent(go.transform, false);
+        tank.bodyVisuals = bodyVisuals;
 
-        // ----- Sprite visuals (hull has a visible front; dome stays level; barrel pitches) -----
-        EnsureSprite(HullSpritePath);
+        // ----- Sprite visuals -----
+        // The hull body art is cropped WITHOUT tracks: the tracks are a
+        // separate band stretched between the suspension wheels below.
+        EnsureSprite(HullBodySpritePath);
+        EnsureSprite(WheelSpritePath);
         EnsureSprite(DomeSpritePath);
         EnsureSprite(BarrelSpritePath);
-        Sprite hullSpr = AssetDatabase.LoadAssetAtPath<Sprite>(HullSpritePath);
+        Sprite hullSpr = AssetDatabase.LoadAssetAtPath<Sprite>(HullBodySpritePath);
+        Sprite wheelSpr = AssetDatabase.LoadAssetAtPath<Sprite>(WheelSpritePath);
         Sprite domeSpr = AssetDatabase.LoadAssetAtPath<Sprite>(DomeSpritePath);
         Sprite barrelSpr = AssetDatabase.LoadAssetAtPath<Sprite>(BarrelSpritePath);
-        if (hullSpr == null || domeSpr == null || barrelSpr == null)
-            Debug.LogError("Tanks: missing tank sprites in Assets/Sprites (TankHull/Dome/Barrel.png).");
+        if (hullSpr == null || wheelSpr == null || domeSpr == null || barrelSpr == null)
+            Debug.LogError("Tanks: missing tank sprites (HullBody/Wheel/Dome/Barrel.png).");
 
-        var hull = new GameObject("Hull");
-        hull.transform.SetParent(visual.transform, false);
+        var hull = new GameObject("HullBody");
+        hull.transform.SetParent(bodyVisuals.transform, false);
         const float hullK = 0.16374f; // hull content 1710px @100ppu -> 2.8 world units wide
-        hull.transform.localPosition = new Vector3(-facing * hullK * 0.035f, 0.2482f, 0f);
+        // The crop removed 435px from the bottom of the 1280px image, so its
+        // center sits 217.5px higher in the art: shift up 0.356 to keep the
+        // body where it was, then 0.12 down so the skirts meet the track band.
+        hull.transform.localPosition = new Vector3(-facing * hullK * 0.035f, 0.2482f + 0.356f - 0.12f, 0f);
         hull.transform.localScale = new Vector3(hullK * facing, hullK, 1f);
         var hullSR = hull.AddComponent<SpriteRenderer>();
         hullSR.sprite = hullSpr;
@@ -195,12 +249,55 @@ public static class TankGameSetup
         tank.hullScale = hullK;
         tank.hullRenderer = hullSR;
 
+        // ----- Suspension: four sprung wheels, independent of the hull -----
+        float[] wheelX = { -1.02f, -0.36f, 0.36f, 1.02f };
+        SuspensionModule frontWheel = null, rearWheel = null;
+        foreach (float wx in wheelX)
+        {
+            var wgo = new GameObject("Wheel");
+            wgo.transform.SetParent(bodyVisuals.transform, false);
+            wgo.transform.localPosition = new Vector3(wx, -0.12f, 0f);
+            var wheel = wgo.AddComponent<SuspensionWheel>();
+            wheel.restLength = 0.32f;
+            wheel.minLength = 0.08f;
+            wheel.maxLength = 0.55f;
+            wheel.stiffness = 150f;
+            wheel.damping = 9f;
+            wheel.driveForce = 10f;
+            wheel.lateralGrip = 50f;
+            wheel.rollingResistance = 2f;
+            wheel.wheelRadius = 0.26f;
+            wheel.probeSlack = 0.45f;
+            wheel.rutDepth = 0.2f; // one terrain pixel deep, then compacted[] caps it
+
+            var wvis = new GameObject("Visual");
+            wvis.transform.SetParent(wgo.transform, false);
+            wvis.transform.localScale = Vector3.one * 0.2167f; // 240px @100ppu -> 0.52 diameter
+            var wsr = wvis.AddComponent<SpriteRenderer>();
+            wsr.sprite = wheelSpr;
+            wsr.sortingOrder = SortWheel;
+            wheel.wheelVisual = wvis.transform;
+
+            if (frontWheel == null || wx > frontWheel.transform.localPosition.x) frontWheel = wheel;
+            if (rearWheel == null || wx < rearWheel.transform.localPosition.x) rearWheel = wheel;
+        }
+
+        // ----- Track band stretched between the end wheels -----
+        var trackGO = new GameObject("Track");
+        trackGO.transform.SetParent(bodyVisuals.transform, false);
+        var track = trackGO.AddComponent<TrackVisual>();
+        track.frontModule = frontWheel;
+        track.rearModule = rearWheel;
+        track.bandHeight = 0.60f; // wraps the 0.26 wheels with a little squash into the dirt
+        track.sortingOrder = SortTrack;
+        track.Init(tank);
+
         var dome = new GameObject("Dome");
-        dome.transform.SetParent(visual.transform, false);
+        dome.transform.SetParent(bodyVisuals.transform, false);
         const float domeS = 0.08060f; // dome content 1985px wide -> 1.6 world units
-        // Dome base sits at world y=0.35, sunk 0.27 into the hull (hull top is 0.624)
-        // so the turret's bottom edge hides behind the hull body.
-        dome.transform.localPosition = new Vector3(-0.0089f, 0.6377f, 0f);
+        // Dome base sunk into the hull so the turret's bottom edge hides
+        // behind the hull body (both shifted down 0.12 with the new hull art).
+        dome.transform.localPosition = new Vector3(-0.0089f, 0.5177f, 0f);
         dome.transform.localScale = new Vector3(domeS, domeS, 1f);
         var domeSR = dome.AddComponent<SpriteRenderer>();
         domeSR.sprite = domeSpr;
@@ -209,8 +306,8 @@ public static class TankGameSetup
         tank.turretRenderer = domeSR;
 
         var pivot = new GameObject("TurretPivot");
-        pivot.transform.SetParent(visual.transform, false);
-        pivot.transform.localPosition = new Vector3(0f, 0.75f, 0f);
+        pivot.transform.SetParent(bodyVisuals.transform, false);
+        pivot.transform.localPosition = new Vector3(0f, 0.63f, 0f);
 
         var barrel = new GameObject("Barrel");
         barrel.transform.SetParent(pivot.transform, false);
@@ -232,7 +329,8 @@ public static class TankGameSetup
         tank.turretPivot = pivot.transform;
         tank.muzzle = muzzle.transform;
 
-        // Health bar (stays upright, not tilted with the body).
+        // Health bar (kept upright and at a fixed height in Tank.Update,
+        // even though the hull pitches on its suspension).
         // Red meter showing the average of the component pools, with the
         // average hitpoints as a number inside.
         var hb = new GameObject("HealthBar");
@@ -245,7 +343,7 @@ public static class TankGameSetup
         var bgsr = bg.AddComponent<SpriteRenderer>();
         bgsr.sprite = Art.CenteredWhite;
         bgsr.color = new Color(0f, 0f, 0f, 0.6f);
-        bgsr.sortingOrder = 5;
+        bgsr.sortingOrder = 6;
 
         var fill = new GameObject("Fill");
         fill.transform.SetParent(hb.transform, false);
@@ -253,7 +351,7 @@ public static class TankGameSetup
         var fsr = fill.AddComponent<SpriteRenderer>();
         fsr.sprite = Art.LeftPivotWhite;
         fsr.color = Color.red;
-        fsr.sortingOrder = 6;
+        fsr.sortingOrder = 7;
 
         var hpt = new GameObject("HPText");
         hpt.transform.SetParent(hb.transform, false);
@@ -267,7 +365,7 @@ public static class TankGameSetup
         tm.alignment = TextAlignment.Center;
         tm.color = Color.white;
         tm.text = "100";
-        tm.GetComponent<Renderer>().sortingOrder = 7;
+        tm.GetComponent<Renderer>().sortingOrder = 8;
 
         tank.healthFill = fsr;
         tank.healthBG = bgsr;
