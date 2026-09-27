@@ -17,11 +17,11 @@ public abstract class SuspensionModule : MonoBehaviour
     [Tooltip("Spring stiffness per module.")]
     public float stiffness = 150f;
     [Tooltip("Spring damping per module.")]
-    public float damping = 9f;
+    public float damping = 20f;
 
     [Header("Drive")]
     [Tooltip("Friction force this module contributes at full throttle and full load.")]
-    public float driveForce = 10f;
+    public float driveForce = 15f;
     [Tooltip("Friction multiplier (worn wheels grip less, claws grip more).")]
     public float grip = 1f;
     [Tooltip("Sideways slide resistance at the contact patch.")]
