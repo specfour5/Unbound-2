@@ -54,6 +54,10 @@ public class Tank : MonoBehaviour
     public float maxStepHeight = 0.45f;
     [Tooltip("How aggressively the step-up assist hoists the hull onto small steps.")]
     public float stepUpSharpness = 30f;
+    [Tooltip("How far the lead track must drop below the trail before the tank is considered over an edge (then it falls instead of hovering).")]
+    public float edgeReleaseDrop = 1.0f;
+    [Tooltip("Midpoint discontinuity confirming a real cliff/edge rather than a steep slope.")]
+    public float cliffStep = 0.35f;
 
     [Header("Weight & inertia")]
     [Tooltip("Tank mass. Heavier tanks take longer to get rolling and to stop, and glide over terrain edges instead of bobbing.")]
@@ -222,8 +226,12 @@ public class Tank : MonoBehaviour
         if (IsMyTurn && !HasFired && IsAlive)
         {
             SampleTrackContacts(rb.position.x, out float hLead, out float hTrail);
+            float hMid = terrain != null ? SampleGroundSmooth(rb.position.x) : 0f;
+            // Nose dropped off a real edge (crater/cliff lip): let go so the
+            // tank tips in and falls instead of hovering on the averaged probes.
+            bool overEdge = IsNoseOverEdge(hLead, hTrail, hMid);
 
-            bool wantsMove = (unlimitedFuel || FuelLeft > 0f) && Mathf.Abs(moveInput) > 0.01f;
+            bool wantsMove = !overEdge && (unlimitedFuel || FuelLeft > 0f) && Mathf.Abs(moveInput) > 0.01f;
             float targetVx = 0f;
             if (wantsMove)
             {
@@ -234,27 +242,47 @@ public class Tank : MonoBehaviour
 
             float w = Mathf.Max(weight, 0.05f);
             float vxPrev = rb.linearVelocity.x; // post-physics: were we actually moving?
-            float vx = Mathf.MoveTowards(vxPrev, targetVx, driveAccel / w * Time.fixedDeltaTime);
 
-            float px = rb.position.x;
-            if (terrain != null &&
-                ((px <= terrain.LeftX + 2f && vx < 0f) || (px >= terrain.RightX - 2f && vx > 0f)))
-                vx = 0f; // world bounds
-            rb.linearVelocity = new Vector2(vx, rb.linearVelocity.y);
+            if (!overEdge)
+            {
+                float vx = Mathf.MoveTowards(vxPrev, targetVx, driveAccel / w * Time.fixedDeltaTime);
+
+                float px = rb.position.x;
+                if (terrain != null &&
+                    ((px <= terrain.LeftX + 2f && vx < 0f) || (px >= terrain.RightX - 2f && vx > 0f)))
+                    vx = 0f; // world bounds
+                rb.linearVelocity = new Vector2(vx, rb.linearVelocity.y);
+            }
+            // While over an edge the tank is ballistic: momentum carries it,
+            // no air steering, no fuel burn, no track mud.
 
             if (wantsMove)
             {
                 if (!unlimitedFuel)
-                    FuelLeft = Mathf.Max(0f, FuelLeft - Mathf.Abs(vx) * Time.fixedDeltaTime);
+                    FuelLeft = Mathf.Max(0f, FuelLeft - Mathf.Abs(rb.linearVelocity.x) * Time.fixedDeltaTime);
                 // Rolling tracks churn the top grass into dark mud.
-                if (Mathf.Abs(vx) > 0.5f && terrain != null)
-                    terrain.MarkTrackMud(px - 0.95f, px + 0.95f);
+                if (Mathf.Abs(rb.linearVelocity.x) > 0.5f && terrain != null)
+                    terrain.MarkTrackMud(rb.position.x - 0.95f, rb.position.x + 0.95f);
             }
 
             // Step-up assist engages when pushing but not moving (ramming a riser).
             bool ramming = wantsMove && Mathf.Abs(vxPrev) < 0.6f;
-            ConstrainToGround(hLead, hTrail, ramming);
+            ConstrainToGround(hLead, hTrail, ramming, overEdge);
         }
+    }
+
+    /// <summary>
+    /// True when the lead track has dropped off a real discontinuity (crater
+    /// lip, cliff) rather than a steep-but-continuous slope: the lead is far
+    /// below the trail AND the midpoint doesn't sit on the average (a slope
+    /// would). While true the tank is unsupported and should fall.
+    /// </summary>
+    bool IsNoseOverEdge(float hLead, float hTrail, float hMid)
+    {
+        if (terrain == null) return false;
+        float avg = (hLead + hTrail) * 0.5f;
+        return (hTrail - hLead) > edgeReleaseDrop
+            && Mathf.Abs(hMid - avg) > cliffStep;
     }
 
     protected virtual void Update()
@@ -328,12 +356,15 @@ public class Tank : MonoBehaviour
     /// presses it down and smooths out terrain edges as it rolls over them
     /// instead of jerking the hull. Includes a step-up assist: when driving
     /// into a small riser faster than the suspension can lift, the hull is
-    /// hoisted onto it instead of sticking on its face. Knockback stays fully
-    /// physical: it only happens after firing or on someone else's turn.
+    /// hoisted onto it instead of sticking on its face. When the nose drops
+    /// off a real edge the constraint lets go entirely and gravity takes the
+    /// tank down. Knockback stays fully physical: it only happens after
+    /// firing or on someone else's turn.
     /// </summary>
-    void ConstrainToGround(float hLead, float hTrail, bool ramming)
+    void ConstrainToGround(float hLead, float hTrail, bool ramming, bool overEdge)
     {
         if (terrain == null) return;
+        if (overEdge) return; // unsupported: don't fight gravity, let it fall in
 
         float climb = Mathf.Clamp(hLead - hTrail, 0f, climbForgiveness);
         float w = Mathf.Max(weight, 0.05f);
