@@ -50,6 +50,10 @@ public class Tank : MonoBehaviour
     [Tooltip("How much the leading track may climb over small pixels instead of digging in.")]
     public float climbForgiveness = 0.35f;
     public float slopeAlignSpeed = 6f;
+    [Tooltip("Tallest terrain step the tank auto-mounts while driving. Taller walls still block it.")]
+    public float maxStepHeight = 0.45f;
+    [Tooltip("How aggressively the step-up assist hoists the hull onto small steps.")]
+    public float stepUpSharpness = 30f;
 
     [Header("Weight & inertia")]
     [Tooltip("Tank mass. Heavier tanks take longer to get rolling and to stop, and glide over terrain edges instead of bobbing.")]
@@ -217,6 +221,8 @@ public class Tank : MonoBehaviour
         // or on someone else's turn, when this block is off.
         if (IsMyTurn && !HasFired && IsAlive)
         {
+            SampleTrackContacts(rb.position.x, out float hLead, out float hTrail);
+
             bool wantsMove = (unlimitedFuel || FuelLeft > 0f) && Mathf.Abs(moveInput) > 0.01f;
             float targetVx = 0f;
             if (wantsMove)
@@ -226,8 +232,9 @@ public class Tank : MonoBehaviour
                 targetVx = Mathf.Clamp(moveInput, -1f, 1f) * moveSpeed;
             }
 
-            float vx = Mathf.MoveTowards(rb.linearVelocity.x, targetVx,
-                driveAccel / Mathf.Max(weight, 0.05f) * Time.fixedDeltaTime);
+            float w = Mathf.Max(weight, 0.05f);
+            float vxPrev = rb.linearVelocity.x; // post-physics: were we actually moving?
+            float vx = Mathf.MoveTowards(vxPrev, targetVx, driveAccel / w * Time.fixedDeltaTime);
 
             float px = rb.position.x;
             if (terrain != null &&
@@ -244,7 +251,9 @@ public class Tank : MonoBehaviour
                     terrain.MarkTrackMud(px - 0.95f, px + 0.95f);
             }
 
-            ConstrainToGround();
+            // Step-up assist engages when pushing but not moving (ramming a riser).
+            bool ramming = wantsMove && Mathf.Abs(vxPrev) < 0.6f;
+            ConstrainToGround(hLead, hTrail, ramming);
         }
     }
 
@@ -317,14 +326,14 @@ public class Tank : MonoBehaviour
     /// the track contacts, so no bouncing on pixels and no floating.
     /// The suspension is a real mass-spring-damper, so the tank's weight
     /// presses it down and smooths out terrain edges as it rolls over them
-    /// instead of jerking the hull. Knockback stays fully physical: it only
-    /// happens after firing or on someone else's turn, when this is off.
+    /// instead of jerking the hull. Includes a step-up assist: when driving
+    /// into a small riser faster than the suspension can lift, the hull is
+    /// hoisted onto it instead of sticking on its face. Knockback stays fully
+    /// physical: it only happens after firing or on someone else's turn.
     /// </summary>
-    void ConstrainToGround()
+    void ConstrainToGround(float hLead, float hTrail, bool ramming)
     {
         if (terrain == null) return;
-        float x = rb.position.x;
-        SampleTrackContacts(x, out float hLead, out float hTrail);
 
         float climb = Mathf.Clamp(hLead - hTrail, 0f, climbForgiveness);
         float w = Mathf.Max(weight, 0.05f);
@@ -337,6 +346,17 @@ public class Tank : MonoBehaviour
         float ay = ((targetY - rb.position.y) * suspensionStiffness
                     - rb.linearVelocity.y * damp) / w;
         float vy = Mathf.Clamp(rb.linearVelocity.y + ay * Time.fixedDeltaTime, -12f, 12f);
+
+        if (ramming)
+        {
+            // Step the lead track tip faces, corrected for the slope the hull
+            // already sits on (so steady slopes don't count as steps).
+            float leadTrackY = rb.position.y - rideHeight + (hLead - hTrail) * 0.5f;
+            float step = hLead - leadTrackY;
+            if (step > 0.02f && step <= maxStepHeight)
+                vy = Mathf.Max(vy, step * stepUpSharpness);
+        }
+
         rb.linearVelocity = new Vector2(rb.linearVelocity.x, vy);
     }
 
