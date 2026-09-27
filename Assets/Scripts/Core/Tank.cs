@@ -49,9 +49,19 @@ public class Tank : MonoBehaviour
     public float rideHeight = 0.45f;
     [Tooltip("How much the leading track may climb over small pixels instead of digging in.")]
     public float climbForgiveness = 0.35f;
-    [Tooltip("How stiffly the tank's height tracks the terrain.")]
-    public float groundFollowSharpness = 12f;
     public float slopeAlignSpeed = 6f;
+
+    [Header("Weight & inertia")]
+    [Tooltip("Tank mass. Heavier tanks take longer to get rolling and to stop, and glide over terrain edges instead of bobbing.")]
+    public float weight = 1f;
+    [Tooltip("Suspension spring stiffness. Higher = tighter terrain following.")]
+    public float suspensionStiffness = 55f;
+    [Tooltip("Suspension damping. Scaled internally with sqrt(weight) so the ride stays composed at any mass.")]
+    public float suspensionDamping = 11f;
+    [Tooltip("How much the suspension sags under the tank's own weight. Heavier tanks press down harder.")]
+    public float suspensionSag = 0.04f;
+    [Tooltip("Horizontal acceleration at weight 1 (units/s^2).")]
+    public float driveAccel = 14f;
 
     [Header("Weapon")]
     public float minAngle = 5f;
@@ -200,31 +210,42 @@ public class Tank : MonoBehaviour
 
     void FixedUpdate()
     {
-        if (IsMyTurn && !HasFired && IsAlive && (unlimitedFuel || FuelLeft > 0f) && Mathf.Abs(moveInput) > 0.01f)
-        {
-            int wantFace = moveInput > 0f ? 1 : -1;
-            if (wantFace != facing) SetFacing(wantFace);
-
-            float step = Mathf.Clamp(moveInput, -1f, 1f) * moveSpeed * Time.fixedDeltaTime;
-            float nx = Mathf.Clamp(rb.position.x + step, terrain.LeftX + 2f, terrain.RightX - 2f);
-            float actual = nx - rb.position.x;
-            rb.linearVelocity = new Vector2(actual / Time.fixedDeltaTime, rb.linearVelocity.y);
-            if (!unlimitedFuel)
-                FuelLeft = Mathf.Max(0f, FuelLeft - Mathf.Abs(actual));
-        }
-        else if (IsMyTurn && Mathf.Abs(moveInput) <= 0.01f)
-        {
-            // Stop promptly when the driver lets go (does not fight knockback:
-            // knockback only happens while HasFired or on someone else's turn).
-            rb.linearVelocity = new Vector2(0f, rb.linearVelocity.y);
-        }
-
-        // Hug the terrain on our own turn (before firing): height from the
-        // track contacts, so no bouncing on pixels and no floating.
-        // Knockback stays fully physical: it only happens after firing or on
-        // someone else's turn, when this constraint is off.
+        // Drive on our own turn (before firing). Weight gives the tank inertia:
+        // it accelerates toward the target speed instead of snapping to it, so
+        // heavy tanks take longer to get rolling and glide a little when you
+        // let go. Knockback stays fully physical: it only happens after firing
+        // or on someone else's turn, when this block is off.
         if (IsMyTurn && !HasFired && IsAlive)
+        {
+            bool wantsMove = (unlimitedFuel || FuelLeft > 0f) && Mathf.Abs(moveInput) > 0.01f;
+            float targetVx = 0f;
+            if (wantsMove)
+            {
+                int wantFace = moveInput > 0f ? 1 : -1;
+                if (wantFace != facing) SetFacing(wantFace);
+                targetVx = Mathf.Clamp(moveInput, -1f, 1f) * moveSpeed;
+            }
+
+            float vx = Mathf.MoveTowards(rb.linearVelocity.x, targetVx,
+                driveAccel / Mathf.Max(weight, 0.05f) * Time.fixedDeltaTime);
+
+            float px = rb.position.x;
+            if (terrain != null &&
+                ((px <= terrain.LeftX + 2f && vx < 0f) || (px >= terrain.RightX - 2f && vx > 0f)))
+                vx = 0f; // world bounds
+            rb.linearVelocity = new Vector2(vx, rb.linearVelocity.y);
+
+            if (wantsMove)
+            {
+                if (!unlimitedFuel)
+                    FuelLeft = Mathf.Max(0f, FuelLeft - Mathf.Abs(vx) * Time.fixedDeltaTime);
+                // Rolling tracks churn the top grass into dark mud.
+                if (Mathf.Abs(vx) > 0.5f && terrain != null)
+                    terrain.MarkTrackMud(px - 0.95f, px + 0.95f);
+            }
+
             ConstrainToGround();
+        }
     }
 
     protected virtual void Update()
@@ -292,9 +313,12 @@ public class Tank : MonoBehaviour
     }
 
     /// <summary>
-    /// Kinematically hugs the tank to the terrain: height from the average of the
-    /// front/rear track contacts (plus a small forgiveness so the leading edge
-    /// climbs small pixels instead of digging in). No bounce, no float.
+    /// Hugs the terrain on the tank's own turn (before firing): height from
+    /// the track contacts, so no bouncing on pixels and no floating.
+    /// The suspension is a real mass-spring-damper, so the tank's weight
+    /// presses it down and smooths out terrain edges as it rolls over them
+    /// instead of jerking the hull. Knockback stays fully physical: it only
+    /// happens after firing or on someone else's turn, when this is off.
     /// </summary>
     void ConstrainToGround()
     {
@@ -303,9 +327,16 @@ public class Tank : MonoBehaviour
         SampleTrackContacts(x, out float hLead, out float hTrail);
 
         float climb = Mathf.Clamp(hLead - hTrail, 0f, climbForgiveness);
-        float targetY = (hLead + hTrail) * 0.5f + rideHeight + climb;
+        float w = Mathf.Max(weight, 0.05f);
+        float targetY = (hLead + hTrail) * 0.5f + rideHeight + climb
+                        - suspensionSag * w; // mass presses the suspension down
 
-        float vy = Mathf.Clamp((targetY - rb.position.y) * groundFollowSharpness, -10f, 10f);
+        // Damping scales with sqrt(weight) so the ride stays composed at any mass;
+        // only the response speed changes (heavier = glides over edges).
+        float damp = suspensionDamping * Mathf.Sqrt(w);
+        float ay = ((targetY - rb.position.y) * suspensionStiffness
+                    - rb.linearVelocity.y * damp) / w;
+        float vy = Mathf.Clamp(rb.linearVelocity.y + ay * Time.fixedDeltaTime, -12f, 12f);
         rb.linearVelocity = new Vector2(rb.linearVelocity.x, vy);
     }
 
@@ -323,8 +354,9 @@ public class Tank : MonoBehaviour
         float z = Mathf.Atan2(hLead - hTrail, 2f * probeHalfWidth) * Mathf.Rad2Deg * facing;
         z = Mathf.Clamp(z, -30f, 30f);
         Quaternion want = Quaternion.Euler(0f, 0f, z);
+        // Heavier hulls roll into the slope more lazily.
         visual.rotation = Quaternion.Lerp(visual.rotation, want,
-            1f - Mathf.Exp(-slopeAlignSpeed * Time.deltaTime));
+            1f - Mathf.Exp(-slopeAlignSpeed / Mathf.Sqrt(Mathf.Max(weight, 0.05f)) * Time.deltaTime));
     }
 
     public void AdjustAngle(float delta)

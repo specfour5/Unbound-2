@@ -46,6 +46,9 @@ public class Terrain : MonoBehaviour
     bool[,] solid;
     bool[,] scorched; // blast-charred pixels: never regrow grass
     bool[,] stone;    // blast-exposed rock: grey instead of grass
+    bool[,] muddy;    // track-churned pixels: dark muddy dirt instead of grass
+    bool muddyDirty;  // set when new track mud is marked; rebuilt throttled
+    float lastMudRebuild = -10f;
     int cols, rows;
     float gridY0;
     int[] topRow; // topmost solid row per column (-1 = empty)
@@ -76,6 +79,8 @@ public class Terrain : MonoBehaviour
         solid = new bool[cols, rows];
         scorched = new bool[cols, rows];
         stone = new bool[cols, rows];
+        muddy = new bool[cols, rows];
+        muddyDirty = false;
         topRow = new int[cols];
 
         float p1 = (float)rng.NextDouble() * Mathf.PI * 2f;
@@ -182,6 +187,36 @@ public class Terrain : MonoBehaviour
         return SurfaceY(ColumnAt(x));
     }
 
+    /// <summary>
+    /// Churns the top grass pixels under rolling tracks into dark muddy dirt.
+    /// Called by tanks as they drive; the visual refresh is throttled so it
+    /// never hitches movement.
+    /// </summary>
+    public void MarkTrackMud(float x0, float x1)
+    {
+        if (solid == null) return;
+        int c0 = Mathf.Clamp(ColumnAt(x0), 0, cols - 1);
+        int c1 = Mathf.Clamp(ColumnAt(x1), 0, cols - 1);
+        bool any = false;
+        for (int c = c0; c <= c1; c++)
+        {
+            int t = topRow[c];
+            if (t >= 0 && !muddy[c, t] && !scorched[c, t]) { muddy[c, t] = true; any = true; }
+        }
+        if (any) muddyDirty = true;
+    }
+
+    void LateUpdate()
+    {
+        // Fold newly churned track mud into the mesh a few times a second.
+        if (muddyDirty && Time.time - lastMudRebuild > 0.2f)
+        {
+            muddyDirty = false;
+            lastMudRebuild = Time.time;
+            Rebuild();
+        }
+    }
+
     /// <summary>Knocks out pixels in a circle centered on world position.</summary>
     public void CarveCrater(Vector2 center, float radius)
     {
@@ -258,11 +293,16 @@ public class Terrain : MonoBehaviour
         int py = Mathf.FloorToInt(y / VP);
         float depthPx = (surfY - y) / VP;
         float h = Hash01(px * 3 + 1, py * 7 + 2);
+        int mc = ColumnAt(x);
+        int mt = topRow[mc];
+        bool mud = mt >= 0 && muddy[mc, mt] && depthPx < 1.5f;
         Color c;
         if (scorched && depthPx < 3f)
             c = ScorchedColor(px, py);
         else if (stone && depthPx < 3f)
             c = StoneColor(px, py);
+        else if (mud)
+            c = new Color(0.34f, 0.25f, 0.15f) * (0.9f + 0.2f * h); // churned track mud
         else if (depthPx < 0.5f && !scorched && !stone)
             c = new Color(0.10f, 0.13f, 0.10f); // dark surface line, like the old outline
         else if (depthPx < 2f + Hash01(px, 777) * 2.999f)
