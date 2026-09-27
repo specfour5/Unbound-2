@@ -34,8 +34,11 @@ public class Vehicle : MonoBehaviour
     protected Rigidbody2D rb;
     protected Terrain terrain;
 
-    /// <summary>Forward direction in world space: hull pitch, flipped by facing.</summary>
-    public Vector2 Forward => (Vector2)(transform.rotation * Vector2.right) * facing;
+    /// <summary>
+    /// Hull's right axis in world space (NOT flipped by facing: drive input
+    /// is world-space, A = left and D = right; facing only flips the art).
+    /// </summary>
+    public Vector2 Forward => (Vector2)(transform.rotation * Vector2.right);
     public float ForwardSpeed => rb != null ? Vector2.Dot(rb.linearVelocity, Forward) : 0f;
     public bool AnyGrounded { get; protected set; }
     /// <summary>Total forward distance driven (drives the track tread scroll).</summary>

@@ -28,8 +28,8 @@ public class SuspensionWheel : SuspensionModule
         {
             wheelVisual.localPosition = new Vector3(0f, -CurrentLength, 0f);
             if (grounded && rb != null)
-                // Spin with ground speed; facing flips the screen direction.
-                spin -= vehicle.facing * Vector2.Dot(rb.linearVelocity, vehicle.Forward) / wheelRadius * dt;
+                // Spin with ground speed along the hull's (unflipped) right axis.
+                spin -= Vector2.Dot(rb.linearVelocity, vehicle.Forward) / wheelRadius * dt;
             wheelVisual.localRotation = Quaternion.Euler(0f, 0f, spin * Mathf.Rad2Deg);
         }
 

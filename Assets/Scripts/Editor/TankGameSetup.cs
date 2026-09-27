@@ -288,7 +288,7 @@ public static class TankGameSetup
         var track = trackGO.AddComponent<TrackVisual>();
         track.frontModule = frontWheel;
         track.rearModule = rearWheel;
-        track.bandHeight = 0.60f; // wraps the 0.26 wheels with a little squash into the dirt
+        track.bandHeight = 0.52f; // bottom edge lands on the wheel bottoms at ride height
         track.sortingOrder = SortTrack;
         track.Init(tank);
 

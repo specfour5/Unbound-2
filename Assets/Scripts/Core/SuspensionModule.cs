@@ -108,25 +108,26 @@ public abstract class SuspensionModule : MonoBehaviour
             // Heavily loaded modules contribute more friction (weight transfer).
             float loadF = Mathf.Clamp01(compression / (restLength * 0.6f) + 0.25f);
 
+            // Drive friction and rolling drag act through the center of mass.
+            // Pushing at the ground contact would lever the hull into a
+            // wheelie (the contact sits ~1 unit below the CoM), which is
+            // what made the suspension porpoise under throttle.
+            float speedF = Vector2.Dot(rb.linearVelocity, fwd);
+            float driveF = 0f;
             if (vehicle.DriveActive)
             {
                 float input = Mathf.Clamp(vehicle.moveInput, -1f, 1f);
                 float target = input * vehicle.maxSpeed;
-                float speedF = Vector2.Dot(rb.linearVelocity, fwd);
                 float gripF = target != 0f ? Mathf.Clamp01(1f - speedF / target) : 0f;
-                rb.AddForceAtPosition(fwd * (input * driveForce * grip * loadF * gripF), contact);
+                driveF = input * driveForce * grip * loadF * gripF;
             }
+            float rollF = rolling ? -speedF * rollingResistance * loadF : 0f;
+            rb.AddForce(fwd * (driveF + rollF));
 
             // Lateral grip: kill sideways sliding at the contact patch.
             Vector2 lat = new Vector2(-fwd.y, fwd.x);
             float speedL = Vector2.Dot(rb.linearVelocity, lat);
             rb.AddForceAtPosition(-lat * (speedL * lateralGrip * grip * loadF), contact);
-
-            if (rolling)
-            {
-                float speedF = Vector2.Dot(rb.linearVelocity, fwd);
-                rb.AddForceAtPosition(-fwd * (speedF * rollingResistance * loadF), contact);
-            }
         }
         else
         {
