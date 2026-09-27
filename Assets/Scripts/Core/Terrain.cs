@@ -49,6 +49,7 @@ public class Terrain : MonoBehaviour
     bool[,] muddy;    // track-churned pixels: dark muddy dirt instead of grass
     bool muddyDirty;  // set when new track mud is marked; rebuilt throttled
     float lastMudRebuild = -10f;
+    float[] compacted; // per-column wheel compaction this battle (world units)
     int cols, rows;
     float gridY0;
     int[] topRow; // topmost solid row per column (-1 = empty)
@@ -81,6 +82,7 @@ public class Terrain : MonoBehaviour
         stone = new bool[cols, rows];
         muddy = new bool[cols, rows];
         muddyDirty = false;
+        compacted = new float[cols];
         topRow = new int[cols];
 
         float p1 = (float)rng.NextDouble() * Mathf.PI * 2f;
@@ -215,6 +217,71 @@ public class Terrain : MonoBehaviour
             lastMudRebuild = Time.time;
             Rebuild();
         }
+    }
+
+    /// <summary>
+    /// Wheels: smoothly depresses the terrain as a vehicle rolls over it.
+    /// Each column is compacted toward a cosine-falloff rut (deepest at the
+    /// wheel center, feathering out to the edges), at most one pixel per call
+    /// and never deeper than depth total — so rolling back and forth can't
+    /// drill to bedrock. Call every physics frame while a wheel is grounded.
+    /// Newly exposed pixels are churned to mud. The mesh refresh is throttled.
+    /// </summary>
+    public void DepressSmooth(float x, float halfWidth, float depth)
+    {
+        if (solid == null || halfWidth <= 0f || depth <= 0f) return;
+        bool any = false;
+        int c0 = Mathf.Max(0, ColumnAt(x - halfWidth));
+        int c1 = Mathf.Min(cols - 1, ColumnAt(x + halfWidth));
+        for (int c = c0; c <= c1; c++)
+        {
+            float cx = LeftX + (c + 0.5f) * pixelSize;
+            float d = Mathf.Abs(cx - x) / halfWidth;
+            if (d > 1f) continue;
+            float want = depth * (0.5f + 0.5f * Mathf.Cos(d * Mathf.PI));
+            if (compacted[c] + pixelSize > want + 1e-4f) continue; // already at rut depth
+            int t = topRow[c];
+            if (t < 0) continue;
+            solid[c, t] = false;
+            topRow[c] = t - 1;
+            compacted[c] += pixelSize;
+            if (t - 1 >= 0) muddy[c, t - 1] = true;
+            any = true;
+        }
+        if (any) muddyDirty = true;
+    }
+
+    /// <summary>
+    /// Legs/feet: stamps a chunky footprint where a foot lands. Knocks out the
+    /// top 1-2 pixels in a small radius (deeper at the center), pixel-aligned
+    /// like a mini crater but without scorch — the disturbed earth reads as mud.
+    /// Call once per footfall.
+    /// </summary>
+    public void StampFootprint(float x, float radius)
+    {
+        if (solid == null || radius <= 0f) return;
+        bool any = false;
+        int c0 = Mathf.Max(0, ColumnAt(x - radius));
+        int c1 = Mathf.Min(cols - 1, ColumnAt(x + radius));
+        for (int c = c0; c <= c1; c++)
+        {
+            int t = topRow[c];
+            if (t < 0) continue;
+            float cx = LeftX + (c + 0.5f) * pixelSize;
+            float d = Mathf.Abs(cx - x) / radius;
+            if (d > 1f) continue;
+            int dig = d < 0.5f ? 2 : 1;
+            int removed = 0;
+            for (int k = 0; k < dig && t - k >= 0; k++)
+            {
+                solid[c, t - k] = false;
+                removed++;
+            }
+            topRow[c] = t - removed;
+            if (t - removed >= 0) muddy[c, t - removed] = true;
+            any = true;
+        }
+        if (any) muddyDirty = true;
     }
 
     /// <summary>Knocks out pixels in a circle centered on world position.</summary>
