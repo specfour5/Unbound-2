@@ -197,6 +197,30 @@ public class Terrain : MonoBehaviour
     }
 
     /// <summary>
+    /// Smooth (C1) terrain height: Catmull-Rom interpolation through the column
+    /// surfaces, clamped against overshoot like the renderer. The suspension
+    /// probes sample this instead of the quantized GetHeightAt: a stepped
+    /// signal kicked the springs every column and made the damper see huge
+    /// phantom compression velocities (the persistent hull bounce).
+    /// </summary>
+    public float SampleSmoothHeight(float x)
+    {
+        if (solid == null) return baseHeight;
+        float fx = (x - LeftX) / pixelSize - 0.5f; // column centers are the knots
+        int c = Mathf.FloorToInt(fx);
+        float t = Mathf.Clamp01(fx - c);
+        float h0 = SurfaceY(Mathf.Clamp(c - 1, 0, cols - 1));
+        float h1 = SurfaceY(Mathf.Clamp(c, 0, cols - 1));
+        float h2 = SurfaceY(Mathf.Clamp(c + 1, 0, cols - 1));
+        float h3 = SurfaceY(Mathf.Clamp(c + 2, 0, cols - 1));
+        float t2 = t * t, t3 = t2 * t;
+        float h = 0.5f * ((2f * h1) + (-h0 + h2) * t
+            + (2f * h0 - 5f * h1 + 4f * h2 - h3) * t2
+            + (-h0 + 3f * h1 - 3f * h2 + h3) * t3);
+        return Mathf.Clamp(h, Mathf.Min(h1, h2), Mathf.Max(h1, h2));
+    }
+
+    /// <summary>
     /// True when the given world point is inside solid terrain. Used by the
     /// vehicle hull bumper probes so the body never interpenetrates crater
     /// walls (the hull collider no longer touches terrain; wheels probe it).

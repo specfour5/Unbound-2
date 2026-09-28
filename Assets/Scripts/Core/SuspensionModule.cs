@@ -77,13 +77,14 @@ public abstract class SuspensionModule : MonoBehaviour
         prevCompression = 0f;
     }
 
-    /// <summary>Smoothed terrain height (3-tap) so single-pixel steps don't jerk modules.</summary>
+    /// <summary>
+    /// Smooth terrain height under a point: Catmull-Rom through the column
+    /// surfaces (the same smooth silhouette the renderer draws), so the
+    /// suspension never sees the sim grid's pixel steps.
+    /// </summary>
     protected float SampleGround(float x)
     {
-        const float r = 0.15f;
-        return (terrain.GetHeightAt(x - r)
-              + terrain.GetHeightAt(x) * 2f
-              + terrain.GetHeightAt(x + r)) * 0.25f;
+        return terrain.SampleSmoothHeight(x);
     }
 
     /// <summary>
