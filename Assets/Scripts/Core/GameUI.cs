@@ -21,7 +21,6 @@ public class GameUI : MonoBehaviour
     Text bannerText;
     Text helpText;
     Image fuelFill;
-    Image powerFill;
 
     float bannerTimer;
 
@@ -38,7 +37,6 @@ public class GameUI : MonoBehaviour
         // baked bar at runtime (no scene rebuild needed) and show power as text.
         var powerBarGO = transform.Find("PowerBar");
         if (powerBarGO != null) powerBarGO.gameObject.SetActive(false);
-        powerFill = null;
         SetBannerAlpha(0f);
     }
 

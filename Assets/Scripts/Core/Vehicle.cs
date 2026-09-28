@@ -38,7 +38,7 @@ public class Vehicle : MonoBehaviour
     [HideInInspector] public List<SuspensionModule> modules = new List<SuspensionModule>();
 
     protected Rigidbody2D rb;
-    protected Terrain terrain;
+    protected TerrainGrid terrain;
 
     /// <summary>
     /// Hull's right axis in world space (NOT flipped by facing: drive input
@@ -74,7 +74,7 @@ public class Vehicle : MonoBehaviour
     }
 
     /// <summary>Called once the battle wires up (TurnManager -> Tank.Setup).</summary>
-    public virtual void Setup(Terrain tr)
+    public virtual void Setup(TerrainGrid tr)
     {
         terrain = tr;
         for (int i = 0; i < modules.Count; i++)

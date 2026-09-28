@@ -23,7 +23,7 @@ public class Projectile : MonoBehaviour
 
     WeaponDef weapon; // set by Configure; Basic Cannon if never set
     Rigidbody2D rb;
-    Terrain terrain; // cached; shells sweep the true-2D grid themselves
+    TerrainGrid terrain; // cached; shells sweep the true-2D grid themselves
     Vector2 lastSweepPos;
     float wind;
     Action onExploded;
@@ -58,7 +58,7 @@ public class Projectile : MonoBehaviour
         // collider anymore (true-2D occupancy can't be an edge loop), and the
         // sweep means fast shells can't skip through thin crater walls.
         Vector2 cur = rb.position;
-        if (terrain == null) terrain = FindAnyObjectByType<Terrain>();
+        if (terrain == null) terrain = FindAnyObjectByType<TerrainGrid>();
         if (terrain != null && SweepHitsTerrain(lastSweepPos, cur, out Vector2 hitP))
         {
             OnTerrainHit(hitP);
@@ -149,7 +149,7 @@ public class Projectile : MonoBehaviour
         float radius = w.explosiveSize;
         float force = w.explosiveForce;
 
-        var terrain = FindAnyObjectByType<Terrain>();
+        var terrain = FindAnyObjectByType<TerrainGrid>();
         if (terrain != null)
             terrain.CarveCrater(p, radius, force);
 

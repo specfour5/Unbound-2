@@ -10,7 +10,7 @@ public class TurnManager : MonoBehaviour, IGameMode
 {
     [Header("Wiring (set by the setup script)")]
     public List<Tank> tanks = new List<Tank>();
-    public Terrain terrain;
+    public TerrainGrid terrain;
     public GameUI ui;
 
     [Header("Rules")]

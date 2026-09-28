@@ -43,7 +43,7 @@ public abstract class SuspensionModule : MonoBehaviour
     public float rollingResistance = 2f;
 
     [HideInInspector] public Vehicle vehicle;
-    [HideInInspector] public Terrain terrain;
+    [HideInInspector] public TerrainGrid terrain;
     [HideInInspector] public List<SuspensionModule> neighbors = new List<SuspensionModule>();
     [HideInInspector] public float springScalar; // pass-1 result: signed force along hull-up (+ = push)
 
@@ -68,7 +68,7 @@ public abstract class SuspensionModule : MonoBehaviour
     /// <summary>True for rolling contacts (wheels), false for planting ones (feet).</summary>
     protected virtual bool Rolling => false;
 
-    public virtual void Init(Vehicle v, Terrain t)
+    public virtual void Init(Vehicle v, TerrainGrid t)
     {
         vehicle = v;
         terrain = t;

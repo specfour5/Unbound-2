@@ -9,7 +9,7 @@ public class SetupMenu : MonoBehaviour
 {
     [Header("Wiring (set by the setup script)")]
     public TurnManager turnManager;
-    public Terrain terrain;
+    public TerrainGrid terrain;
     public GameObject panel;
     public Button[] windButtons;
     public Button[] spawnButtons;

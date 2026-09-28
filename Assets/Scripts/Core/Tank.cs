@@ -137,7 +137,7 @@ public class Tank : Vehicle
             foreach (var c in components) c.hp = c.maxHP;
     }
 
-    public virtual void Setup(IGameMode gameMode, Terrain tr)
+    public virtual void Setup(IGameMode gameMode, TerrainGrid tr)
     {
         mode = gameMode;
         base.Setup(tr); // Vehicle: terrain + suspension module init

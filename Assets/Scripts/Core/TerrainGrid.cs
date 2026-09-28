@@ -13,7 +13,7 @@ using UnityEngine;
 /// the grid along their flight path.
 /// </summary>
 [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
-public class Terrain : MonoBehaviour
+public class TerrainGrid : MonoBehaviour
 {
     [System.Serializable]
     public struct FlattenSpot
@@ -178,7 +178,7 @@ public class Terrain : MonoBehaviour
         float minSurface = float.MaxValue;
         for (int c = 0; c < cols; c++)
             minSurface = Mathf.Min(minSurface, GetHeightAt(LeftX + (c + 0.5f) * pixelSize));
-        Debug.Log($"[Terrain] Generate done: cols={cols} rows={rows} pixelSize={pixelSize} " +
+        Debug.Log($"[TerrainGrid] Generate done: cols={cols} rows={rows} pixelSize={pixelSize} " +
                   $"minSurface={minSurface:F2} flattenSpots={flattenSpots.Count}");
 
         Rebuild();

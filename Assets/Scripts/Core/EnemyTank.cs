@@ -83,7 +83,6 @@ public class EnemyTank : Tank
         float v = ShotPower; // fixed by the weapon; the AI solves the angle for it
 
         float solution = 45f;
-        bool inRange = false;
         if (dx > 1f)
         {
             float v2 = v * v;
@@ -93,7 +92,6 @@ public class EnemyTank : Tank
                 // Low-arc solution of the projectile range equation.
                 float tan = (v2 - Mathf.Sqrt(disc)) / (G * dx);
                 solution = Mathf.Atan(tan) * Mathf.Rad2Deg;
-                inRange = true;
             }
         }
 

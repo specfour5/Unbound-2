@@ -9,7 +9,7 @@ using System.Collections.Generic;
 public class SideScrollerManager : MonoBehaviour, IGameMode
 {
     [Header("Wiring (set by the setup script)")]
-    public Terrain terrain;
+    public TerrainGrid terrain;
     public Tank player;
     public List<Tank> enemies = new List<Tank>();
     public SideScrollerUI ui;

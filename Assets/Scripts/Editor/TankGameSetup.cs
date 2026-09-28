@@ -30,7 +30,7 @@ public static class TankGameSetup
         // --- Terrain ---
         var terrainGO = new GameObject("Terrain");
         if (TerrainLayer >= 0) terrainGO.layer = TerrainLayer;
-        var terrain = terrainGO.AddComponent<Terrain>();
+        var terrain = terrainGO.AddComponent<TerrainGrid>();
         terrain.width = 120f;
         terrain.baseHeight = 7f;
         terrain.amplitude = 4f;
@@ -109,7 +109,7 @@ public static class TankGameSetup
         // --- Terrain: long, procedural, rougher and stonier to the right ---
         var terrainGO = new GameObject("Terrain");
         if (TerrainLayer >= 0) terrainGO.layer = TerrainLayer;
-        var terrain = terrainGO.AddComponent<Terrain>();
+        var terrain = terrainGO.AddComponent<TerrainGrid>();
         terrain.width = mapWidth;
         terrain.baseHeight = 7f;
         terrain.amplitude = 4f;
@@ -410,7 +410,7 @@ public static class TankGameSetup
     }
 
     static Tank CreateTank(string name, Color color, int facing, bool isPlayer,
-        GameObject projTemplate, Terrain terrain, float x)
+        GameObject projTemplate, TerrainGrid terrain, float x)
     {
         var go = new GameObject(name);
         go.transform.position = new Vector3(x, terrain.GetHeightAt(x) + 1.5f, 0f);

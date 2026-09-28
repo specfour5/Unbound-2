@@ -31,7 +31,7 @@ public class DebrisSystem : MonoBehaviour
     const float Bounce = 0.38f;
     const float FadeTime = 1.0f;
 
-    Terrain terrain;
+    TerrainGrid terrain;
     Mesh mesh;
     readonly List<Chunk> chunks = new List<Chunk>(256);
     readonly List<Vector3> verts = new List<Vector3>(MaxChunks * 4);
@@ -40,7 +40,7 @@ public class DebrisSystem : MonoBehaviour
 
     void Awake()
     {
-        terrain = GetComponent<Terrain>();
+        terrain = GetComponent<TerrainGrid>();
         mesh = new Mesh { name = "DebrisMesh" };
         GetComponent<MeshFilter>().mesh = mesh;
         var renderer = GetComponent<MeshRenderer>();
