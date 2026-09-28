@@ -11,6 +11,39 @@ public class EnemyTank : Tank
     [Tooltip("1 = perfect aim, 0 = stormtrooper.")]
     public float skill = 0.8f;
 
+    [Header("Real-time AI (side-scroller mode)")]
+    [Tooltip("When true, aims and fires on cooldown whenever the target is in range.")]
+    public bool realTimeAI;
+    [Tooltip("Won't engage targets beyond this distance.")]
+    public float aggroRange = 45f;
+
+    float aiAimClock;
+    float aiSettleClock;
+
+    protected override void Update()
+    {
+        base.Update();
+        if (!realTimeAI || !IsAlive || mode == null) return;
+
+        Tank target = mode.GetTargetFor(this);
+        if (target == null || !target.IsAlive) return;
+        if (Vector2.Distance(transform.position, target.transform.position) > aggroRange)
+            return;
+
+        // Re-aim about once a second; fire once the new aim has settled and
+        // the weapon's cooldown has elapsed.
+        aiAimClock += Time.deltaTime;
+        aiSettleClock += Time.deltaTime;
+        if (aiAimClock >= 1f)
+        {
+            aiAimClock = 0f;
+            aiSettleClock = 0f;
+            AimAtOpponent(target);
+        }
+        if (aiSettleClock > 0.4f && mode.CanFire(this))
+            Fire();
+    }
+
     public IEnumerator RunTurn()
     {
         yield return new WaitForSeconds(0.8f);
@@ -31,14 +64,13 @@ public class EnemyTank : Tank
         moveInput = 0f;
 
         yield return new WaitForSeconds(0.5f);
-        AimAtOpponent();
+        AimAtOpponent(mode != null ? mode.GetTargetFor(this) : null);
         yield return new WaitForSeconds(0.7f);
         Fire();
     }
 
-    void AimAtOpponent()
+    void AimAtOpponent(Tank target)
     {
-        Tank target = turnManager.GetFirstAliveOpponent(this);
         if (target == null) return;
 
         Vector2 to = (Vector2)target.transform.position + Vector2.up * 0.5f;

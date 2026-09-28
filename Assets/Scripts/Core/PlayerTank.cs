@@ -11,7 +11,7 @@ public class PlayerTank : Tank
     {
         base.Update();
 
-        if (!IsMyTurn || HasFired || !IsAlive)
+        if (!CanControl)
         {
             moveInput = 0f;
             HidePreview();
@@ -28,9 +28,10 @@ public class PlayerTank : Tank
             AdjustAngle(-angleAdjustSpeed * Time.deltaTime);
 
         // Shot power is a function of the weapon: SPACE fires immediately.
+        // Fire() itself enforces the mode's gate (turn or cooldown).
         if (Input.GetKeyDown(KeyCode.Space))
             Fire();
 
-        UpdatePreview(turnManager.Wind);
+        UpdatePreview(mode != null ? mode.Wind : 0f);
     }
 }

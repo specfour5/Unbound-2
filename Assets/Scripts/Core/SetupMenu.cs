@@ -15,11 +15,17 @@ public class SetupMenu : MonoBehaviour
     public Button[] spawnButtons;
     public Button[] fuelButtons;
     public Button[] weaponButtons;
+    public Button[] modeButtons;
     public Button startButton;
     public RectTransform windFrame;
     public RectTransform spawnFrame;
     public RectTransform fuelFrame;
     public RectTransform weaponFrame;
+    public RectTransform modeFrame;
+
+    // Game mode: duel is the classic turn-based battle; side-scroller is the
+    // real-time campaign (loads the SideScroller scene).
+    public static readonly string[] ModeNames = { "Duel", "Side-Scroller" };
 
     // Wind options: index 2 ("Default") matches the game's long-standing behavior.
     public static readonly string[] WindNames = { "None", "Light", "Default", "Strong", "Extreme" };
@@ -36,9 +42,15 @@ public class SetupMenu : MonoBehaviour
     int spawnIndex = 1;
     int fuelIndex = 0;
     int weaponIndex = 0;
+    int modeIndex = 0;
 
     void Start()
     {
+        for (int i = 0; i < modeButtons.Length; i++)
+        {
+            int k = i;
+            modeButtons[i].onClick.AddListener(() => SelectMode(k));
+        }
         for (int i = 0; i < windButtons.Length; i++)
         {
             int k = i;
@@ -63,6 +75,12 @@ public class SetupMenu : MonoBehaviour
         startButton.onClick.AddListener(StartBattle);
         Refresh();
         if (panel != null) panel.SetActive(true);
+    }
+
+    public void SelectMode(int i)
+    {
+        modeIndex = Mathf.Clamp(i, 0, modeButtons.Length - 1);
+        Refresh();
     }
 
     public void SelectWind(int i)
@@ -91,6 +109,12 @@ public class SetupMenu : MonoBehaviour
 
     void Refresh()
     {
+        for (int i = 0; i < modeButtons.Length; i++)
+        {
+            bool sel = i == modeIndex;
+            Tint(modeButtons[i], sel);
+            StyleLabel(modeButtons[i], sel);
+        }
         for (int i = 0; i < windButtons.Length; i++)
         {
             bool sel = i == windIndex;
@@ -115,6 +139,8 @@ public class SetupMenu : MonoBehaviour
             Tint(weaponButtons[i], sel);
             StyleLabel(weaponButtons[i], sel);
         }
+        if (modeFrame != null && modeButtons.Length > 0)
+            modeFrame.anchoredPosition = modeButtons[modeIndex].GetComponent<RectTransform>().anchoredPosition;
         if (windFrame != null && windButtons.Length > 0)
             windFrame.anchoredPosition = windButtons[windIndex].GetComponent<RectTransform>().anchoredPosition;
         if (spawnFrame != null && spawnButtons.Length > 0)
@@ -144,9 +170,20 @@ public class SetupMenu : MonoBehaviour
 
     void StartBattle()
     {
-        float dist = spawnDists[spawnIndex];
         WeaponDef chosen = weaponIndex >= 0 && weaponIndex < WeaponCatalog.All.Count
             ? WeaponCatalog.All[weaponIndex] : WeaponCatalog.BasicCannon;
+
+        // Side-scroller: carry the weapon + wind choices into the campaign scene.
+        if (modeIndex == 1)
+        {
+            GameConfig.weapon = chosen;
+            GameConfig.windMultiplier = windMults[windIndex];
+            if (panel != null) panel.SetActive(false);
+            UnityEngine.SceneManagement.SceneManager.LoadScene("SideScroller");
+            return;
+        }
+
+        float dist = spawnDists[spawnIndex];
         foreach (var t in turnManager.tanks)
         {
             float x = t.isPlayer ? -dist / 2f : dist / 2f;

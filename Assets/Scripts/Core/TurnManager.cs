@@ -6,7 +6,7 @@ using System.Collections.Generic;
 /// Owns the game flow: cycles tanks through turns, rolls wind each turn,
 /// enforces the turn timer, waits for shots to resolve, and calls the win/lose.
 /// </summary>
-public class TurnManager : MonoBehaviour
+public class TurnManager : MonoBehaviour, IGameMode
 {
     [Header("Wiring (set by the setup script)")]
     public List<Tank> tanks = new List<Tank>();
@@ -110,8 +110,14 @@ public class TurnManager : MonoBehaviour
         CurrentTank = null;
     }
 
-    public void OnTankFired(Tank tank) { /* hook for future sound/FX */ }
+    public void OnFired(Tank tank) { /* hook for future sound/FX */ }
     public void OnProjectileResolved() => projectileResolved = true;
+
+    // --- IGameMode (the duel is the turn-based implementation) ---
+    public bool IsTurnBased => true;
+    public bool ControlsActive(Tank t) => t != null && t.IsMyTurn && !t.HasFired && t.IsAlive;
+    public bool CanFire(Tank t) => t != null && t.IsMyTurn && !t.HasFired && t.IsAlive;
+    public Tank GetTargetFor(Tank me) => GetFirstAliveOpponent(me);
 
     public void OnTankKilled(Tank tank)
     {

@@ -88,6 +88,228 @@ public static class TankGameSetup
         EditorUtility.DisplayDialog("Tanks", "Scene built and saved as TankGame.unity.\nPress Play!", "Let's go");
     }
 
+    [MenuItem("Tanks/Build Side-Scroller Scene")]
+    public static void BuildSideScene()
+    {
+        var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+        EnsureInputBoth();
+
+        VehicleLayer = EnsureLayer("Vehicle");
+        TerrainLayer = EnsureLayer("Terrain");
+
+        const float mapWidth = 480f;
+        const float playerStartX = -220f;
+        const float endX = 225f;
+        const int enemyCount = 8;
+
+        // --- Terrain: long, procedural, rougher and stonier to the right ---
+        var terrainGO = new GameObject("Terrain");
+        if (TerrainLayer >= 0) terrainGO.layer = TerrainLayer;
+        var terrain = terrainGO.AddComponent<Terrain>();
+        terrain.width = mapWidth;
+        terrain.baseHeight = 7f;
+        terrain.amplitude = 4f;
+        terrain.seed = 0; // random hills every run
+        terrain.rampDifficulty = true;
+        terrain.deepStone = true;
+        terrainGO.GetComponent<MeshRenderer>().material =
+            new Material(Shader.Find("Sprites/Default"));
+        // Flattened pads: player start + each enemy spawn (applied in Generate).
+        terrain.FlattenArea(playerStartX, 10f);
+        var enemyXs = new List<float>();
+        for (int i = 0; i < enemyCount; i++)
+        {
+            float ex = 40f + i * 55f;
+            enemyXs.Add(ex);
+            terrain.FlattenArea(ex, 8f);
+        }
+        terrain.Generate();
+
+        // --- Projectile template (kept inactive under Templates) ---
+        var templates = new GameObject("Templates");
+        var projTemplate = CreateProjectileTemplate();
+        projTemplate.transform.SetParent(templates.transform, false);
+        projTemplate.SetActive(false);
+
+        // --- Player ---
+        Tank player = CreateTank("PlayerTank", new Color(0.30f, 0.75f, 0.35f), 1, true,
+            projTemplate, terrain, playerStartX);
+        player.unlimitedFuel = true; // driving IS the game; no stranding mid-run
+        player.weapon = WeaponCatalog.BasicCannon;
+
+        // --- Enemies: parked tanks with real-time AI; skill ramps with distance ---
+        var enemies = new List<Tank>();
+        for (int i = 0; i < enemyCount; i++)
+        {
+            Tank e = CreateTank("EnemyTank_" + i, new Color(0.85f, 0.32f, 0.30f), -1, false,
+                projTemplate, terrain, enemyXs[i]);
+            var ai = (EnemyTank)e;
+            ai.realTimeAI = true;
+            ai.skill = Mathf.Lerp(0.45f, 0.85f, (float)i / Mathf.Max(1, enemyCount - 1));
+            ai.aggroRange = 48f;
+            e.weapon = WeaponCatalog.BasicCannon;
+            enemies.Add(e);
+        }
+
+        // --- Camera ---
+        var camGO = new GameObject("Main Camera");
+        camGO.tag = "MainCamera";
+        var cam = camGO.AddComponent<Camera>();
+        cam.orthographic = true;
+        cam.orthographicSize = 13f;
+        camGO.transform.position = new Vector3(playerStartX, 9f, -10f);
+        camGO.AddComponent<AudioListener>();
+        var follow = camGO.AddComponent<CameraFollow>();
+        follow.minX = -mapWidth / 2f + 5f;
+        follow.maxX = mapWidth / 2f - 5f;
+
+        // --- HUD ---
+        var ui = BuildSideUI();
+
+        // --- Campaign manager ---
+        var mgrGO = new GameObject("SideScrollerManager");
+        var mgr = mgrGO.AddComponent<SideScrollerManager>();
+        mgr.terrain = terrain;
+        mgr.player = player;
+        mgr.enemies = enemies;
+        mgr.ui = ui;
+        mgr.startX = playerStartX;
+        mgr.endX = endX;
+
+        // The duel menu's MODE row loads the campaign scene by name, so both
+        // scenes must be registered for builds.
+        EnsureSceneInBuild("Assets/Scenes/TankGame.unity");
+        EnsureSceneInBuild("Assets/Scenes/SideScroller.unity");
+
+        EditorSceneManager.SaveScene(scene, "Assets/Scenes/SideScroller.unity");
+        EditorUtility.DisplayDialog("Tanks", "Side-scroller scene built and saved.\nPress Play!", "Let's go");
+    }
+
+    static void EnsureSceneInBuild(string path)
+    {
+        var scenes = new List<EditorBuildSettingsScene>(EditorBuildSettings.scenes);
+        foreach (var s in scenes)
+            if (s.path == path) return;
+        scenes.Add(new EditorBuildSettingsScene(path, true));
+        EditorBuildSettings.scenes = scenes.ToArray();
+    }
+
+    /// <summary>Campaign HUD: kills, wind, progress, cooldown bar, end panel.</summary>
+    static SideScrollerUI BuildSideUI()
+    {
+        var canvasGO = new GameObject("SideScrollerUI");
+        var canvas = canvasGO.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        var scaler = canvasGO.AddComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1280f, 720f);
+        canvasGO.AddComponent<GraphicRaycaster>();
+        var ui = canvasGO.AddComponent<SideScrollerUI>();
+        Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+
+        var kills = MakeLabel("KillsText", canvasGO.transform, 0f, font, 24);
+        var kRT = kills.GetComponent<RectTransform>();
+        kRT.anchorMin = new Vector2(0f, 1f); kRT.anchorMax = new Vector2(0f, 1f);
+        kRT.pivot = new Vector2(0f, 1f);
+        kRT.anchoredPosition = new Vector2(16f, -16f);
+        kRT.sizeDelta = new Vector2(320f, 36f);
+        kills.alignment = TextAnchor.UpperLeft;
+        kills.text = "KILLS  0/8";
+
+        var wind = MakeLabel("WindText", canvasGO.transform, 0f, font, 24);
+        var wRT = wind.GetComponent<RectTransform>();
+        wRT.anchorMin = new Vector2(1f, 1f); wRT.anchorMax = new Vector2(1f, 1f);
+        wRT.pivot = new Vector2(1f, 1f);
+        wRT.anchoredPosition = new Vector2(-16f, -16f);
+        wRT.sizeDelta = new Vector2(320f, 36f);
+        wind.alignment = TextAnchor.UpperRight;
+
+        // Progress bar (top-center): how far across the map the player is.
+        var prog = new GameObject("ProgressBar");
+        prog.transform.SetParent(canvasGO.transform, false);
+        var progRT = prog.AddComponent<RectTransform>();
+        progRT.anchorMin = new Vector2(0.5f, 1f); progRT.anchorMax = new Vector2(0.5f, 1f);
+        progRT.pivot = new Vector2(0.5f, 1f);
+        progRT.anchoredPosition = new Vector2(0f, -18f);
+        progRT.sizeDelta = new Vector2(440f, 16f);
+        var progBg = prog.AddComponent<Image>();
+        progBg.sprite = Art.CenteredWhite;
+        progBg.color = new Color(0f, 0f, 0f, 0.5f);
+        var progFill = BarFill(prog.transform, new Color(0.35f, 0.75f, 0.95f));
+
+        // Cooldown bar (bottom-center).
+        var cd = new GameObject("CooldownBar");
+        cd.transform.SetParent(canvasGO.transform, false);
+        var cdRT = cd.AddComponent<RectTransform>();
+        cdRT.anchorMin = new Vector2(0.5f, 0f); cdRT.anchorMax = new Vector2(0.5f, 0f);
+        cdRT.pivot = new Vector2(0.5f, 0f);
+        cdRT.anchoredPosition = new Vector2(0f, 48f);
+        cdRT.sizeDelta = new Vector2(300f, 18f);
+        var cdBg = cd.AddComponent<Image>();
+        cdBg.sprite = Art.CenteredWhite;
+        cdBg.color = new Color(0f, 0f, 0f, 0.5f);
+        var cdFill = BarFill(cd.transform, new Color(0.35f, 0.85f, 0.40f));
+
+        var cdLabel = MakeLabel("CooldownLabel", canvasGO.transform, 0f, font, 15);
+        var clRT = cdLabel.GetComponent<RectTransform>();
+        clRT.anchorMin = new Vector2(0.5f, 0f); clRT.anchorMax = new Vector2(0.5f, 0f);
+        clRT.pivot = new Vector2(0.5f, 0f);
+        clRT.anchoredPosition = new Vector2(0f, 72f);
+        clRT.sizeDelta = new Vector2(300f, 22f);
+        cdLabel.alignment = TextAnchor.LowerCenter;
+
+        // End panel (hidden until the run ends).
+        var end = new GameObject("EndPanel");
+        end.transform.SetParent(canvasGO.transform, false);
+        var endRT = end.AddComponent<RectTransform>();
+        endRT.anchorMin = Vector2.zero; endRT.anchorMax = Vector2.one;
+        endRT.offsetMin = Vector2.zero; endRT.offsetMax = Vector2.zero;
+        var endImg = end.AddComponent<Image>();
+        endImg.sprite = Art.CenteredWhite;
+        endImg.color = new Color(0f, 0f, 0f, 0.72f);
+        var endTitle = MakeLabel("EndTitle", end.transform, 0f, font, 64);
+        var etRT = endTitle.GetComponent<RectTransform>();
+        etRT.anchorMin = new Vector2(0.5f, 0.5f); etRT.anchorMax = new Vector2(0.5f, 0.5f);
+        etRT.anchoredPosition = new Vector2(0f, 40f);
+        etRT.sizeDelta = new Vector2(900f, 100f);
+        endTitle.alignment = TextAnchor.MiddleCenter;
+        var endSub = MakeLabel("EndSubtitle", end.transform, 0f, font, 26);
+        var esRT = endSub.GetComponent<RectTransform>();
+        esRT.anchorMin = new Vector2(0.5f, 0.5f); esRT.anchorMax = new Vector2(0.5f, 0.5f);
+        esRT.anchoredPosition = new Vector2(0f, -40f);
+        esRT.sizeDelta = new Vector2(900f, 60f);
+        endSub.alignment = TextAnchor.MiddleCenter;
+        end.SetActive(false);
+
+        ui.killsText = kills;
+        ui.windText = wind;
+        ui.progressFill = progFill;
+        ui.cooldownFill = cdFill;
+        ui.cooldownLabel = cdLabel;
+        ui.endPanel = end;
+        ui.endTitle = endTitle;
+        ui.endSubtitle = endSub;
+        return ui;
+    }
+
+    /// <summary>Full-rect filled Image child, for HUD bars.</summary>
+    static Image BarFill(Transform parent, Color color)
+    {
+        var fill = new GameObject("Fill");
+        fill.transform.SetParent(parent, false);
+        var rt = fill.AddComponent<RectTransform>();
+        rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
+        rt.offsetMin = Vector2.zero; rt.offsetMax = Vector2.zero;
+        var img = fill.AddComponent<Image>();
+        img.sprite = Art.CenteredWhite;
+        img.type = Image.Type.Filled;
+        img.fillMethod = Image.FillMethod.Horizontal;
+        img.fillOrigin = (int)Image.OriginHorizontal.Left;
+        img.color = color;
+        return img;
+    }
+
     // The tank scripts read keyboard via Input.GetKey, which needs the old
     // Input Manager enabled. "Both" keeps the new Input System working too.
     static void EnsureInputBoth()
@@ -657,19 +879,35 @@ public static class TankGameSetup
         boxRT.anchorMin = new Vector2(0.5f, 0.5f);
         boxRT.anchorMax = new Vector2(0.5f, 0.5f);
         boxRT.pivot = new Vector2(0.5f, 0.5f);
-        boxRT.sizeDelta = new Vector2(720f, 640f);
+        boxRT.sizeDelta = new Vector2(720f, 780f);
         var boxImg = box.AddComponent<Image>();
         boxImg.sprite = Art.CenteredWhite;
         boxImg.color = new Color(0.10f, 0.11f, 0.14f, 0.97f);
 
         var title = MakeLabel("Title", box.transform, 0f, font, 22);
         var titleRT = title.GetComponent<RectTransform>();
-        titleRT.anchoredPosition = new Vector2(0f, 270f);
+        titleRT.anchoredPosition = new Vector2(0f, 340f);
         titleRT.sizeDelta = new Vector2(600f, 60f);
         title.text = "BATTLE SETUP";
 
+        var modeLabel = MakeLabel("ModeLabel", box.transform, 0f, font, 22);
+        modeLabel.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, 280f);
+        modeLabel.text = "MODE";
+
+        var modeButtons = new Button[SetupMenu.ModeNames.Length];
+        for (int i = 0; i < modeButtons.Length; i++)
+        {
+            float x = (i - (modeButtons.Length - 1) / 2f) * 208f;
+            modeButtons[i] = MakeButton("Mode_" + SetupMenu.ModeNames[i], box.transform,
+                SetupMenu.ModeNames[i], font, 22, new Vector2(x, 235f), new Vector2(200f, 46f));
+        }
+        // Yellow selection frame behind the selected mode button ("Duel" = index 0).
+        var modeFrame = MakeSelectionFrame(box.transform, new Vector2(200f, 46f));
+        modeFrame.SetSiblingIndex(0);
+        modeFrame.anchoredPosition = new Vector2((0 - (modeButtons.Length - 1) / 2f) * 208f, 235f);
+
         var windLabel = MakeLabel("WindLabel", box.transform, 0f, font, 22);
-        windLabel.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, 210f);
+        windLabel.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, 175f);
         windLabel.text = "WIND";
 
         var windButtons = new Button[SetupMenu.WindNames.Length];
@@ -677,15 +915,15 @@ public static class TankGameSetup
         {
             float x = (i - (windButtons.Length - 1) / 2f) * 136f;
             windButtons[i] = MakeButton("Wind_" + SetupMenu.WindNames[i], box.transform,
-                SetupMenu.WindNames[i], font, 22, new Vector2(x, 165f), new Vector2(128f, 46f));
+                SetupMenu.WindNames[i], font, 22, new Vector2(x, 130f), new Vector2(128f, 46f));
         }
         // Yellow selection frame behind the selected wind button ("Default" = index 2).
         var windFrame = MakeSelectionFrame(box.transform, new Vector2(128f, 46f));
         windFrame.SetSiblingIndex(0);
-        windFrame.anchoredPosition = new Vector2((2 - (windButtons.Length - 1) / 2f) * 136f, 165f);
+        windFrame.anchoredPosition = new Vector2((2 - (windButtons.Length - 1) / 2f) * 136f, 130f);
 
         var spawnLabel = MakeLabel("SpawnLabel", box.transform, 0f, font, 22);
-        spawnLabel.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, 105f);
+        spawnLabel.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, 70f);
         spawnLabel.text = "SPAWN DISTANCE";
 
         var spawnButtons = new Button[SetupMenu.SpawnNames.Length];
@@ -693,15 +931,15 @@ public static class TankGameSetup
         {
             float x = (i - (spawnButtons.Length - 1) / 2f) * 158f;
             spawnButtons[i] = MakeButton("Spawn_" + SetupMenu.SpawnNames[i], box.transform,
-                SetupMenu.SpawnNames[i], font, 22, new Vector2(x, 60f), new Vector2(150f, 46f));
+                SetupMenu.SpawnNames[i], font, 22, new Vector2(x, 25f), new Vector2(150f, 46f));
         }
         // Yellow selection frame behind the selected spawn button ("Default" = index 1).
         var spawnFrame = MakeSelectionFrame(box.transform, new Vector2(150f, 46f));
         spawnFrame.SetSiblingIndex(0);
-        spawnFrame.anchoredPosition = new Vector2((1 - (spawnButtons.Length - 1) / 2f) * 158f, 60f);
+        spawnFrame.anchoredPosition = new Vector2((1 - (spawnButtons.Length - 1) / 2f) * 158f, 25f);
 
         var fuelLabel = MakeLabel("FuelLabel", box.transform, 0f, font, 22);
-        fuelLabel.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, 0f);
+        fuelLabel.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, -35f);
         fuelLabel.text = "FUEL";
 
         var fuelButtons = new Button[SetupMenu.FuelNames.Length];
@@ -709,15 +947,15 @@ public static class TankGameSetup
         {
             float x = (i - (fuelButtons.Length - 1) / 2f) * 158f;
             fuelButtons[i] = MakeButton("Fuel_" + SetupMenu.FuelNames[i], box.transform,
-                SetupMenu.FuelNames[i], font, 22, new Vector2(x, -45f), new Vector2(150f, 46f));
+                SetupMenu.FuelNames[i], font, 22, new Vector2(x, -80f), new Vector2(150f, 46f));
         }
         // Yellow selection frame behind the selected fuel button ("Low" = index 0).
         var fuelFrame = MakeSelectionFrame(box.transform, new Vector2(150f, 46f));
         fuelFrame.SetSiblingIndex(0);
-        fuelFrame.anchoredPosition = new Vector2((0 - (fuelButtons.Length - 1) / 2f) * 158f, -45f);
+        fuelFrame.anchoredPosition = new Vector2((0 - (fuelButtons.Length - 1) / 2f) * 158f, -80f);
 
         var weaponLabel = MakeLabel("WeaponLabel", box.transform, 0f, font, 22);
-        weaponLabel.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, -105f);
+        weaponLabel.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, -140f);
         weaponLabel.text = "WEAPON";
 
         var defs = WeaponCatalog.All;
@@ -726,25 +964,27 @@ public static class TankGameSetup
         {
             float x = (i - (weaponButtons.Length - 1) / 2f) * 178f;
             weaponButtons[i] = MakeButton("Weapon_" + defs[i].id, box.transform,
-                defs[i].displayName, font, 22, new Vector2(x, -150f), new Vector2(170f, 46f));
+                defs[i].displayName, font, 22, new Vector2(x, -185f), new Vector2(170f, 46f));
             weaponButtons[i].interactable = defs[i].available;
         }
         // Yellow selection frame behind the selected weapon button (index 0).
         var weaponFrame = MakeSelectionFrame(box.transform, new Vector2(170f, 46f));
         weaponFrame.SetSiblingIndex(0);
-        weaponFrame.anchoredPosition = new Vector2((0 - (weaponButtons.Length - 1) / 2f) * 178f, -150f);
+        weaponFrame.anchoredPosition = new Vector2((0 - (weaponButtons.Length - 1) / 2f) * 178f, -185f);
 
         var start = MakeButton("StartButton", box.transform, "START BATTLE", font, 22,
-            new Vector2(0f, -235f), new Vector2(300f, 64f));
+            new Vector2(0f, -270f), new Vector2(300f, 64f));
         start.GetComponent<Image>().color = new Color(0.25f, 0.62f, 0.32f);
 
         var menu = dim.AddComponent<SetupMenu>();
         menu.panel = canvasGO;
+        menu.modeButtons = modeButtons;
         menu.windButtons = windButtons;
         menu.spawnButtons = spawnButtons;
         menu.fuelButtons = fuelButtons;
         menu.weaponButtons = weaponButtons;
         menu.startButton = start;
+        menu.modeFrame = modeFrame;
         menu.windFrame = windFrame;
         menu.spawnFrame = spawnFrame;
         menu.fuelFrame = fuelFrame;

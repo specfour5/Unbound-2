@@ -26,6 +26,10 @@ public class Terrain : MonoBehaviour
     public float amplitude = 4f;
     [Tooltip("0 = random every play. Any other value = same hills every time.")]
     public int seed = 42;
+    [Tooltip("When true, hills grow rougher from left to right (campaign difficulty).")]
+    public bool rampDifficulty;
+    [Tooltip("When true, the far half of the map hides stone blobs underground (tougher digging).")]
+    public bool deepStone;
 
     [Header("Simulation grid")]
     [Tooltip("World units per sim cell. Smaller = finer crater edges. Rendering is smooth regardless.")]
@@ -107,6 +111,12 @@ public class Terrain : MonoBehaviour
                 + Mathf.Sin(t * Mathf.PI * f1 + p1) * amplitude * 0.6f
                 + Mathf.Sin(t * Mathf.PI * f2 + p2) * amplitude * 0.3f
                 + Mathf.Sin(t * Mathf.PI * 9f + p3) * amplitude * 0.05f;
+            // Campaign difficulty: hills start gentle and grow rougher.
+            if (rampDifficulty)
+            {
+                float ramp = Mathf.Lerp(0.65f, 1.6f, t);
+                heights[c] = baseHeight + (heights[c] - baseHeight) * ramp;
+            }
         }
 
         // Gentle smoothing pass: takes the edge off single-column spikes
@@ -123,6 +133,24 @@ public class Terrain : MonoBehaviour
         RefreshTops(); // flattening reads surface heights, so tops must be current
         foreach (var spot in flattenSpots)
             ApplyFlatten(spot.x, spot.radius);
+
+        // Campaign flavor: the far half of the map hides stone blobs a few
+        // pixels under the surface, so late-game shells dig less easily.
+        if (deepStone)
+        {
+            for (int c = cols / 2; c < cols; c++)
+            {
+                if (rng.NextDouble() > 0.35) continue;
+                int top = topRow[c];
+                int depthCells = 2 + rng.Next(5); // 2..6 px under the surface
+                int r = top - depthCells;
+                if (r < 2) continue;
+                int blob = 1 + rng.Next(3); // 1..3 px tall
+                for (int rr = r; rr > r - blob && rr >= 0; rr--)
+                    stone[c, rr] = true;
+            }
+            RefreshTops();
+        }
 
         float minSurface = float.MaxValue;
         for (int c = 0; c < cols; c++)
@@ -255,7 +283,10 @@ public class Terrain : MonoBehaviour
     void LateUpdate()
     {
         // Fold newly churned track mud into the mesh a few times a second.
-        if (muddyDirty && Time.time - lastMudRebuild > 0.2f)
+        // The interval scales with map length so long campaign maps don't
+        // hitch while driving (a full rebuild touches every column).
+        float interval = 0.2f * Mathf.Max(1f, cols / 800f);
+        if (muddyDirty && Time.time - lastMudRebuild > interval)
         {
             muddyDirty = false;
             lastMudRebuild = Time.time;

@@ -44,6 +44,10 @@ public class Tank : Vehicle
 
     /// <summary>Shot power is a function of the weapon, not a charge.</summary>
     public float ShotPower => (weapon ?? WeaponCatalog.BasicCannon).muzzleVelocity;
+    /// <summary>Time between shots, from the weapon (real-time modes).</summary>
+    public float ShotCooldown => (weapon ?? WeaponCatalog.BasicCannon).cooldown;
+    /// <summary>Seconds until the weapon can fire again.</summary>
+    public float cooldownLeft;
 
     [Header("Combat")]
     [Tooltip("Weapon this tank fires (chosen in the setup menu).")]
@@ -72,7 +76,8 @@ public class Tank : Vehicle
     public SpriteRenderer weaponRenderer;
 
     protected Collider2D col;
-    protected TurnManager turnManager;
+    /// <summary>Whoever runs the game: the duel TurnManager or the side-scroller.</summary>
+    protected IGameMode mode;
 
     Color hullBaseColor = Color.white;
     Color turretBaseColor = Color.white;
@@ -109,6 +114,10 @@ public class Tank : Vehicle
     public bool HasFired { get; protected set; }
     public float FuelLeft { get; protected set; }
 
+    /// <summary>May this tank drive and aim right now (mode-aware).</summary>
+    protected bool CanControl =>
+        IsAlive && (mode != null ? mode.ControlsActive(this) : (IsMyTurn && !HasFired));
+
     /// <summary>World-space direction the barrel is pointing.</summary>
     public Vector2 AimDir
     {
@@ -128,9 +137,9 @@ public class Tank : Vehicle
             foreach (var c in components) c.hp = c.maxHP;
     }
 
-    public virtual void Setup(TurnManager tm, Terrain tr)
+    public virtual void Setup(IGameMode gameMode, Terrain tr)
     {
-        turnManager = tm;
+        mode = gameMode;
         base.Setup(tr); // Vehicle: terrain + suspension module init
         SetFacing(facing);
         if (hullRenderer != null) hullBaseColor = hullRenderer.color;
@@ -186,9 +195,10 @@ public class Tank : Vehicle
 
     protected virtual void Update()
     {
-        // Gate the drive on turn state; the Vehicle suspension physics does
+        if (cooldownLeft > 0f) cooldownLeft -= Time.deltaTime;
+        // Gate the drive on the game mode; the Vehicle suspension physics does
         // the rest (spring support, per-wheel friction, slope pitch, falls).
-        driveEnabled = IsMyTurn && !HasFired && IsAlive && (unlimitedFuel || FuelLeft > 0f);
+        driveEnabled = CanControl && (unlimitedFuel || FuelLeft > 0f);
         if (DriveActive)
         {
             int wantFace = moveInput > 0f ? 1 : -1;
@@ -248,7 +258,7 @@ public class Tank : Vehicle
         UpdateBarrel();
     }
 
-    bool CanAim() => IsMyTurn && !HasFired && IsAlive;
+    bool CanAim() => CanControl;
 
     protected void UpdateBarrel()
     {
@@ -268,8 +278,11 @@ public class Tank : Vehicle
 
     public virtual void Fire()
     {
-        if (!IsMyTurn || HasFired || !IsAlive) return;
-        HasFired = true;
+        if (!IsAlive) return;
+        if (mode != null && !mode.CanFire(this)) return;
+        if (mode == null && (!IsMyTurn || HasFired)) return;
+        if (mode == null || mode.IsTurnBased) HasFired = true;
+        cooldownLeft = ShotCooldown;
         HidePreview();
 
         GameObject go = Instantiate(projectileTemplate);
@@ -282,15 +295,16 @@ public class Tank : Vehicle
             Physics2D.IgnoreCollision(pcol, col);
 
         proj.Configure(weapon ?? WeaponCatalog.BasicCannon);
-        proj.Launch(AimDir * ShotPower, turnManager.Wind, OnProjectileExploded);
+        float wind = mode != null ? mode.Wind : 0f;
+        proj.Launch(AimDir * ShotPower, wind, OnProjectileExploded);
         ExplosionFX.Spawn(muzzle.position, 0.9f);
 
         if (CameraFollow.Instance != null)
             CameraFollow.Instance.Follow(go.transform);
-        turnManager.OnTankFired(this);
+        if (mode != null) mode.OnFired(this);
     }
 
-    void OnProjectileExploded() => turnManager.OnProjectileResolved();
+    void OnProjectileExploded() => mode?.OnProjectileResolved();
 
     public void TakeDamage(float dmg)
     {
@@ -317,7 +331,7 @@ public class Tank : Vehicle
         HidePreview();
         col.enabled = false;
         rb.simulated = false;
-        turnManager.OnTankKilled(this);
+        if (mode != null) mode.OnTankKilled(this);
     }
 
     void UpdateHealthBar()
