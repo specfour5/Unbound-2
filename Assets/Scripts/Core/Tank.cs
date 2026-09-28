@@ -61,6 +61,15 @@ public class Tank : Vehicle
     public GameObject bodyVisuals;
     public Transform turretPivot;
     public Transform muzzle;
+    [Tooltip("Rear-mounted rocket launcher pivot (hidden unless the weapon uses a launcher).")]
+    public Transform launcherPivot;
+    [Tooltip("Muzzle at the launcher's tip; rockets spawn here.")]
+    public Transform launcherMuzzle;
+    [Tooltip("Template for rocket projectiles (MRL).")]
+    public GameObject rocketTemplate;
+    [Tooltip("True = launcher renders in front of the hull (foreground side), " +
+        "false = behind the hull (background side).")]
+    public bool launcherInForeground = false;
     [Tooltip("Hull body sprite object; flipped on the X axis to face the drive direction.")]
     public Transform hull;
     [Tooltip("Uniform base scale of the hull sprite (set by the setup script).")]
@@ -149,6 +158,7 @@ public class Tank : Vehicle
         mode = gameMode;
         base.Setup(tr); // Vehicle: terrain + suspension module init
         SetFacing(facing);
+        ConfigureWeapon();
         if (hullRenderer != null) hullBaseColor = hullRenderer.color;
         if (turretRenderer != null) turretBaseColor = turretRenderer.color;
         if (weaponRenderer != null) weaponBaseColor = weaponRenderer.color;
@@ -270,9 +280,40 @@ public class Tank : Vehicle
 
     protected void UpdateBarrel()
     {
-        if (turretPivot == null) return;
+        var w = weapon ?? WeaponCatalog.BasicCannon;
+        Transform pivot = (w.usesLauncher && launcherPivot != null) ? launcherPivot : turretPivot;
+        if (pivot == null) return;
         float z = Mathf.Atan2(AimDir.y, AimDir.x) * Mathf.Rad2Deg;
-        turretPivot.rotation = Quaternion.Euler(0f, 0f, z);
+        pivot.rotation = Quaternion.Euler(0f, 0f, z);
+    }
+
+    /// <summary>
+    /// Shows the rear launcher (hiding the turret/barrel) when the weapon
+    /// uses one, or vice versa. Call after assigning a new weapon.
+    /// </summary>
+    public void ConfigureWeapon()
+    {
+        var w = weapon ?? WeaponCatalog.BasicCannon;
+        bool launcher = w.usesLauncher;
+        if (launcherPivot != null) launcherPivot.gameObject.SetActive(launcher);
+        if (turretPivot != null) turretPivot.gameObject.SetActive(!launcher);
+        // Foreground side renders above the hull, background side below it.
+        if (launcherPivot != null)
+        {
+            var lsr = launcherPivot.GetComponent<SpriteRenderer>();
+            if (lsr != null)
+            {
+                int hullOrder = 5;
+                if (hull != null)
+                {
+                    var hr = hull.GetComponent<SpriteRenderer>();
+                    if (hr != null) hullOrder = hr.sortingOrder;
+                }
+                lsr.sortingOrder = launcherInForeground ? hullOrder + 1 : hullOrder - 1;
+            }
+        }
+        angle = Mathf.Clamp(angle, w.minElevation, w.maxElevation);
+        UpdateBarrel();
     }
 
     /// <summary>Turns the hull's front toward a direction (+1 right, -1 left).</summary>
@@ -293,26 +334,52 @@ public class Tank : Vehicle
         cooldownLeft = ShotCooldown;
         HidePreview();
 
-        GameObject go = Instantiate(projectileTemplate);
-        go.transform.position = muzzle.position;
-        go.SetActive(true);
-
-        var proj = go.GetComponent<Projectile>();
-        var pcol = go.GetComponent<Collider2D>();
-        if (pcol != null && col != null)
-            Physics2D.IgnoreCollision(pcol, col);
-
-        proj.Configure(weapon ?? WeaponCatalog.BasicCannon);
+        var w = weapon ?? WeaponCatalog.BasicCannon;
+        bool launcher = w.usesLauncher;
+        Transform muzzleT = (launcher && launcherMuzzle != null) ? launcherMuzzle : muzzle;
+        GameObject template = (launcher && rocketTemplate != null) ? rocketTemplate : projectileTemplate;
         float wind = mode != null ? mode.Wind : 0f;
-        proj.Launch(AimDir * ShotPower, wind, OnProjectileExploded);
-        ExplosionFX.Spawn(muzzle.position, 0.9f);
 
-        if (CameraFollow.Instance != null)
-            CameraFollow.Instance.Follow(go.transform);
+        volleyPending = Mathf.Max(1, w.projectileCount);
+        for (int i = 0; i < volleyPending; i++)
+        {
+            GameObject go = Instantiate(template);
+            go.transform.position = muzzleT.position;
+            go.SetActive(true);
+
+            var proj = go.GetComponent<Projectile>();
+            var pcol = go.GetComponent<Collider2D>();
+            if (pcol != null && col != null)
+                Physics2D.IgnoreCollision(pcol, col);
+
+            proj.Configure(w);
+            // Slightly randomized trajectory per rocket.
+            float spread = (UnityEngine.Random.value * 2f - 1f) * w.spreadDegrees;
+            Vector2 dir = RotateDeg(AimDir, spread);
+            float vel = ShotPower * (1f + (UnityEngine.Random.value * 2f - 1f) * 0.1f);
+            proj.Launch(dir * vel, wind, OnProjectileExploded);
+            ExplosionFX.Spawn(muzzleT.position, 0.9f);
+
+            if (i == 0 && CameraFollow.Instance != null)
+                CameraFollow.Instance.Follow(go.transform);
+        }
         if (mode != null) mode.OnFired(this);
     }
 
-    void OnProjectileExploded() => mode?.OnProjectileResolved();
+    static Vector2 RotateDeg(Vector2 v, float deg)
+    {
+        float r = deg * Mathf.Deg2Rad;
+        float c = Mathf.Cos(r), s = Mathf.Sin(r);
+        return new Vector2(v.x * c - v.y * s, v.x * s + v.y * c);
+    }
+
+    int volleyPending = 1;
+    void OnProjectileExploded()
+    {
+        // A volley only resolves the turn/camera once every rocket has landed.
+        if (--volleyPending <= 0)
+            mode?.OnProjectileResolved();
+    }
 
     public void TakeDamage(float dmg)
     {

@@ -49,10 +49,14 @@ public static class TankGameSetup
         var projTemplate = CreateProjectileTemplate();
         projTemplate.transform.SetParent(templates.transform, false);
         projTemplate.SetActive(false);
+        var rocketTemplate = CreateRocketTemplate();
+        rocketTemplate.transform.SetParent(templates.transform, false);
+        rocketTemplate.SetActive(false);
+        rocketTemplate.SetActive(false);
 
         // --- Tanks ---
-        Tank player = CreateTank("PlayerTank", new Color(0.30f, 0.75f, 0.35f), 1, true, projTemplate, terrain, PlayerX);
-        Tank enemy = CreateTank("EnemyTank", new Color(0.85f, 0.32f, 0.30f), -1, false, projTemplate, terrain, EnemyX);
+        Tank player = CreateTank("PlayerTank", new Color(0.30f, 0.75f, 0.35f), 1, true, projTemplate, rocketTemplate, terrain, PlayerX);
+        Tank enemy = CreateTank("EnemyTank", new Color(0.85f, 0.32f, 0.30f), -1, false, projTemplate, rocketTemplate, terrain, EnemyX);
 
         // --- Camera ---
         var camGO = new GameObject("Main Camera");
@@ -137,10 +141,13 @@ public static class TankGameSetup
         var projTemplate = CreateProjectileTemplate();
         projTemplate.transform.SetParent(templates.transform, false);
         projTemplate.SetActive(false);
+        var rocketTemplate = CreateRocketTemplate();
+        rocketTemplate.transform.SetParent(templates.transform, false);
+        rocketTemplate.SetActive(false);
 
         // --- Player ---
         Tank player = CreateTank("PlayerTank", new Color(0.30f, 0.75f, 0.35f), 1, true,
-            projTemplate, terrain, playerStartX);
+            projTemplate, rocketTemplate, terrain, playerStartX);
         player.unlimitedFuel = true; // driving IS the game; no stranding mid-run
         player.weapon = WeaponCatalog.BasicCannon;
 
@@ -149,7 +156,7 @@ public static class TankGameSetup
         for (int i = 0; i < enemyCount; i++)
         {
             Tank e = CreateTank("EnemyTank_" + i, new Color(0.85f, 0.32f, 0.30f), -1, false,
-                projTemplate, terrain, enemyXs[i]);
+                projTemplate, rocketTemplate, terrain, enemyXs[i]);
             var ai = (EnemyTank)e;
             ai.realTimeAI = true;
             ai.skill = Mathf.Lerp(0.45f, 0.85f, (float)i / Mathf.Max(1, enemyCount - 1));
@@ -410,7 +417,7 @@ public static class TankGameSetup
     }
 
     static Tank CreateTank(string name, Color color, int facing, bool isPlayer,
-        GameObject projTemplate, TerrainGrid terrain, float x)
+        GameObject projTemplate, GameObject rocketTemplate, TerrainGrid terrain, float x)
     {
         var go = new GameObject(name);
         go.transform.position = new Vector3(x, terrain.GetHeightAt(x) + 1.5f, 0f);
@@ -441,6 +448,7 @@ public static class TankGameSetup
         tank.hullMass = 4.5f;
         tank.maxSpeed = 5f;
         tank.projectileTemplate = projTemplate;
+        tank.rocketTemplate = rocketTemplate;
 
         // Body visuals root: everything that pitches with the hull.
         var bodyVisuals = new GameObject("BodyVisuals");
@@ -591,6 +599,22 @@ public static class TankGameSetup
         tank.turretPivot = pivot.transform;
         tank.muzzle = muzzle.transform;
 
+        // ----- Rear rocket launcher (hidden unless the weapon uses it) -----
+        var launcherPivot = new GameObject("LauncherPivot");
+        launcherPivot.transform.SetParent(bodyVisuals.transform, false);
+        launcherPivot.transform.localPosition = new Vector3(-1.25f, 0.75f, 0f);
+        var lsr = launcherPivot.AddComponent<SpriteRenderer>();
+        lsr.sprite = Art.Launcher;
+        lsr.sortingOrder = SortHull - 1; // background side by default; Tank.ConfigureWeapon adjusts
+        launcherPivot.SetActive(false);
+
+        var launcherMuzzle = new GameObject("LauncherMuzzle");
+        launcherMuzzle.transform.SetParent(launcherPivot.transform, false);
+        launcherMuzzle.transform.localPosition = new Vector3(0.6f, 0f, 0f);
+
+        tank.launcherPivot = launcherPivot.transform;
+        tank.launcherMuzzle = launcherMuzzle.transform;
+
         // Health bar (kept upright and at a fixed height in Tank.Update,
         // even though the hull pitches on its suspension).
         // Red meter showing the average of the component pools, with the
@@ -657,6 +681,31 @@ public static class TankGameSetup
         trail.material = new Material(Shader.Find("Sprites/Default"));
         trail.startColor = new Color(1f, 0.7f, 0.2f, 0.8f);
         trail.endColor = new Color(1f, 0.3f, 0.1f, 0f);
+        trail.sortingOrder = 3;
+
+        go.AddComponent<Projectile>();
+        return go;
+    }
+
+    static GameObject CreateRocketTemplate()
+    {
+        var go = new GameObject("RocketTemplate");
+        var rb = go.AddComponent<Rigidbody2D>();
+        rb.gravityScale = Projectile.GravityScale;
+        var col = go.AddComponent<CircleCollider2D>();
+        col.radius = 0.18f;
+        var sr = go.AddComponent<SpriteRenderer>();
+        sr.sprite = Art.Rocket;
+        sr.sortingOrder = 4;
+        // Rocket sprite points +x; orient along velocity in Projectile.
+
+        var trail = go.AddComponent<TrailRenderer>();
+        trail.time = 0.6f;
+        trail.startWidth = 0.22f;
+        trail.endWidth = 0.04f;
+        trail.material = new Material(Shader.Find("Sprites/Default"));
+        trail.startColor = new Color(1f, 0.75f, 0.3f, 0.9f);
+        trail.endColor = new Color(1f, 0.4f, 0.1f, 0f);
         trail.sortingOrder = 3;
 
         go.AddComponent<Projectile>();

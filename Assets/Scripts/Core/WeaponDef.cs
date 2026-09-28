@@ -37,6 +37,14 @@ public class WeaponDef
     public float maxElevation = 45f;
     [Tooltip("Min barrel elevation in degrees (negative = depression below the front axis).")]
     public float minElevation = -10f;
+
+    [Header("Volley")]
+    [Tooltip("How many projectiles per trigger pull (1 = single shell).")]
+    public int projectileCount = 1;
+    [Tooltip("Random spread in degrees applied to each projectile's launch angle.")]
+    public float spreadDegrees = 0f;
+    [Tooltip("True = fires from a rear-mounted launcher (hidden barrel/turret).")]
+    public bool usesLauncher = false;
 }
 
 /// <summary>All known weapons. New types get an entry here and appear in the setup menu.</summary>
@@ -57,5 +65,23 @@ public static class WeaponCatalog
         minElevation = -10f,
     };
 
-    public static readonly List<WeaponDef> All = new List<WeaponDef> { BasicCannon };
+    public static readonly WeaponDef MRL = new WeaponDef
+    {
+        id = "mrl",
+        displayName = "Rocket Launcher",
+        description = "6-rocket salvo from a rear launcher. Wide blast, lighter punch.",
+        available = true,
+        penetration = 0.5f,
+        explosiveForce = 30f,
+        explosiveSize = 6.5f,
+        muzzleVelocity = 20f,
+        cooldown = 3.5f,
+        maxElevation = 75f,
+        minElevation = 30f,
+        projectileCount = 6,
+        spreadDegrees = 4f,
+        usesLauncher = true,
+    };
+
+    public static readonly List<WeaponDef> All = new List<WeaponDef> { BasicCannon, MRL };
 }

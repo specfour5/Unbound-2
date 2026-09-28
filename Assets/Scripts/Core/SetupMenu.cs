@@ -193,6 +193,7 @@ public class SetupMenu : MonoBehaviour
             t.fuelPerTurn = fuelIndex == 1 ? t.baseFuelPerTurn * 2f : t.baseFuelPerTurn;
             t.unlimitedFuel = fuelIndex == 2;
             t.weapon = chosen;
+            t.ConfigureWeapon();
         }
         turnManager.windMultiplier = windMults[windIndex];
         if (panel != null) panel.SetActive(false);

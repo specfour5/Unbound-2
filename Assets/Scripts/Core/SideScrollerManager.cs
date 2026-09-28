@@ -48,6 +48,7 @@ public class SideScrollerManager : MonoBehaviour, IGameMode
         // Carry the duel setup menu's choices across the scene load.
         if (GameConfig.weapon != null && player != null)
             player.weapon = GameConfig.weapon;
+            player.ConfigureWeapon();
         windMultiplier = GameConfig.windMultiplier;
 
         player.Setup(this, terrain);
