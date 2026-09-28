@@ -268,9 +268,9 @@ public class Tank : Vehicle
     }
 
     /// <summary>Turns the hull's front toward a direction (+1 right, -1 left).</summary>
-    public void SetFacing(int dir)
+    public override void SetFacing(int dir)
     {
-        facing = dir >= 0 ? 1 : -1;
+        base.SetFacing(dir);
         if (hull != null)
             hull.localScale = new Vector3(hullScale * facing, hullScale, 1f);
         UpdateBarrel();

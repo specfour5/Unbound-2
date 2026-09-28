@@ -52,6 +52,25 @@ public abstract class SuspensionModule : MonoBehaviour
     public float CurrentLength { get; protected set; }
     /// <summary>Axle position in hull-local space (module origin sits at the anchor).</summary>
     public Vector2 AxleLocal => new Vector2(0f, -CurrentLength);
+
+    public enum AxleEnd { Rear, Middle, Front }
+    /// <summary>
+    /// Which end of the vehicle this module is on, derived from the
+    /// VEHICLE's facing — the single front definition. A wheel at local +x
+    /// is Front when facing=+1 and Rear when facing=-1. (Within 0.2 of
+    /// center counts as Middle.)
+    /// </summary>
+    public AxleEnd End
+    {
+        get
+        {
+            if (vehicle == null) return AxleEnd.Middle;
+            float fx = transform.localPosition.x * vehicle.facing;
+            if (fx > 0.2f) return AxleEnd.Front;
+            if (fx < -0.2f) return AxleEnd.Rear;
+            return AxleEnd.Middle;
+        }
+    }
     /// <summary>Last computed ground contact point (world).</summary>
     public Vector2 LastContact { get; protected set; }
 

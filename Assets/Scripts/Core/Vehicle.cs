@@ -16,7 +16,9 @@ public class Vehicle : MonoBehaviour
     public float hullMass = 4.5f;
     [Tooltip("Top speed the drive force aims for (world units/second).")]
     public float maxSpeed = 5f;
-    [Tooltip("+1 faces right, -1 faces left (logical; flips drive direction and hull art).")]
+    [Tooltip("THE front definition: +1 = front points world-right, -1 = front points world-left. " +
+        "Everything attached (wheels, weapons) derives front/rear from this. " +
+        "Drive input is world-space; facing only turns the hull art and defines front.")]
     public int facing = 1;
 
     [Header("Drive")]
@@ -43,9 +45,26 @@ public class Vehicle : MonoBehaviour
     /// <summary>
     /// Hull's right axis in world space (NOT flipped by facing: drive input
     /// is world-space, A = left and D = right; facing only flips the art).
+    /// For the direction the FRONT points, use FrontDirection.
     /// </summary>
     public Vector2 Forward => (Vector2)(transform.rotation * Vector2.right);
     public float ForwardSpeed => rb != null ? Vector2.Dot(rb.linearVelocity, Forward) : 0f;
+
+    /// <summary>
+    /// World-space direction the vehicle's front points (facing-aware).
+    /// Attached modules and front-arc weapons use this — never derive front
+    /// from anything else.
+    /// </summary>
+    public Vector2 FrontDirection => Forward * facing;
+
+    /// <summary>
+    /// Turns the vehicle's front toward a direction (+1 right, -1 left).
+    /// This is the ONLY place facing changes; subclasses override to flip art.
+    /// </summary>
+    public virtual void SetFacing(int dir)
+    {
+        facing = dir >= 0 ? 1 : -1;
+    }
     public bool AnyGrounded { get; protected set; }
     /// <summary>Total forward distance driven (drives the track tread scroll).</summary>
     public float Odometer { get; protected set; }
