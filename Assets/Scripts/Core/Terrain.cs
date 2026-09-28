@@ -451,7 +451,7 @@ public class Terrain : MonoBehaviour
                 float force = explosiveForce * falloff
                     - PropagationCost(center, px, py);
                 // Positional noise (stable per location): no two craters break the same way.
-                float noise = (Hash01(c * 7 + 1, r * 13 + 5) - 0.5f) * breakNoise;
+                float noise = BreakNoiseAt(c, r);
                 if (force + noise > GetHardnessAt(px, py) * HardnessTune)
                 {
                     if (dist > radius * DebrisVaporizeFrac)
@@ -605,6 +605,26 @@ public class Terrain : MonoBehaviour
         int h = (a * 73856093) ^ (b * 19349663);
         h = (h ^ (h >> 13)) * 1274126177;
         return ((h ^ (h >> 16)) & 0xffff) / 65535f;
+    }
+
+    /// <summary>
+    /// Smooth value noise for crater edges: hash lattice at ~3-cell features
+    /// with smoothstep interpolation. Neighboring pixels roll similarly, so
+    /// crater walls vary in smooth organic waves instead of white-noise pixel
+    /// teeth. Stable per location (same input -> same output).
+    /// </summary>
+    float BreakNoiseAt(int cx, int cy)
+    {
+        const float feature = 3f; // noise feature size, in cells
+        float fx = cx / feature, fy = cy / feature;
+        int x0 = Mathf.FloorToInt(fx), y0 = Mathf.FloorToInt(fy);
+        float tx = fx - x0, ty = fy - y0;
+        float sx = tx * tx * (3f - 2f * tx), sy = ty * ty * (3f - 2f * ty);
+        float a = Hash01(x0 * 7 + 1, y0 * 13 + 5);
+        float b = Hash01(x0 * 7 + 8, y0 * 13 + 5);
+        float c = Hash01(x0 * 7 + 1, y0 * 13 + 18);
+        float d = Hash01(x0 * 7 + 8, y0 * 13 + 18);
+        return (Mathf.Lerp(Mathf.Lerp(a, b, sx), Mathf.Lerp(c, d, sx), sy) - 0.5f) * breakNoise;
     }
 
     /// <summary>
