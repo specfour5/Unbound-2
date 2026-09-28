@@ -40,6 +40,10 @@ public class Terrain : MonoBehaviour
     [Tooltip("World units per sim cell. Smaller = finer crater edges and tunnels.")]
     public float pixelSize = 0.15f;
 
+    [Header("Explosions")]
+    [Tooltip("Blast force absorbed per solid cell the shockwave crosses. Makes surface blasts dig wide shallow bowls (energy vents into the air) and buried blasts blow spherical cavities (confined in all directions).")]
+    public float blastAbsorption = 2f;
+
     [Header("Spawn flattening")]
     public System.Collections.Generic.List<FlattenSpot> flattenSpots =
         new System.Collections.Generic.List<FlattenSpot>();
@@ -402,6 +406,10 @@ public class Terrain : MonoBehaviour
     /// resist: a pixel breaks when explosiveForce * falloff exceeds its
     /// hardness (x HardnessTune), so force breaks harder terrain and the
     /// crater shrinks in stone instead of ignoring it.
+    /// The shockwave loses blastAbsorption force per solid cell it crosses
+    /// between the blast and the pixel, so surface blasts dig wide shallow
+    /// bowls (energy vents upward through air) while buried blasts blow
+    /// roughly spherical cavities (confined in every direction).
     /// There is no column-top cleanup: ragged walls, overhangs and tunnels are
     /// all legal results. Pixels near the blast vaporize; destroyed pixels in
     /// the outer band scatter as physical debris with a force gradient.
@@ -432,7 +440,9 @@ public class Terrain : MonoBehaviour
                 if (d2 > r2) continue;
                 float dist = Mathf.Sqrt(d2);
                 float falloff = 1f - dist / radius;
-                if (explosiveForce * falloff > GetHardnessAt(px, py) * HardnessTune)
+                float force = explosiveForce * falloff
+                    - ShockAbsorption(center, px, py) * blastAbsorption;
+                if (force > GetHardnessAt(px, py) * HardnessTune)
                 {
                     if (dist > radius * VaporizeFrac)
                         seeds.Add(new DebrisSeed
@@ -463,6 +473,27 @@ public class Terrain : MonoBehaviour
         public Vector2 pos;
         public Color color;
         public float dist;
+    }
+
+    /// <summary>
+    /// Counts the solid cells on the segment from the blast center to a
+    /// target point: the shockwave's path through the ground. Rays that vent
+    /// through air lose nothing; rays buried in dirt lose the most.
+    /// </summary>
+    float ShockAbsorption(Vector2 from, float tx, float ty)
+    {
+        float dx = tx - from.x, dy = ty - from.y;
+        float dist = Mathf.Sqrt(dx * dx + dy * dy);
+        if (dist < 1e-6f) return 0f;
+        float step = pixelSize * 0.5f;
+        int n = Mathf.Max(1, Mathf.FloorToInt(dist / step));
+        int absorbed = 0;
+        for (int i = 0; i < n; i++)
+        {
+            float t = (i + 0.5f) / n;
+            if (IsSolidAt(from.x + dx * t, from.y + dy * t)) absorbed++;
+        }
+        return absorbed;
     }
 
     /// <summary>
