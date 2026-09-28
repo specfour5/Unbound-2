@@ -62,6 +62,7 @@ public class Terrain : MonoBehaviour
     int cols, rows;
     float gridY0;
     Mesh mesh;
+    DebrisSystem debris;
 
     public float LeftX => -width / 2f;
     public float RightX => width / 2f;
@@ -78,6 +79,8 @@ public class Terrain : MonoBehaviour
         int tl = LayerMask.NameToLayer("Terrain");
         if (vl >= 0 && tl >= 0)
             Physics2D.IgnoreLayerCollision(vl, tl, true);
+        debris = GetComponent<DebrisSystem>();
+        if (debris == null) debris = gameObject.AddComponent<DebrisSystem>();
         Generate();
     }
 
@@ -400,19 +403,24 @@ public class Terrain : MonoBehaviour
     /// hardness (x HardnessTune), so force breaks harder terrain and the
     /// crater shrinks in stone instead of ignoring it.
     /// There is no column-top cleanup: ragged walls, overhangs and tunnels are
-    /// all legal results. Freshly exposed faces are charred where they face
-    /// the sky and fractured to stone where they face sideways/down.
+    /// all legal results. Pixels near the blast vaporize; destroyed pixels in
+    /// the outer band scatter as physical debris with a force gradient.
+    /// Freshly exposed faces are charred where they face the sky and fractured
+    /// to stone where they face sideways/down.
     /// </summary>
     public void CarveCrater(Vector2 center, float radius, float explosiveForce)
     {
         if (solid == null || radius <= 0f) return;
         const float HardnessTune = 8f;
+        const float VaporizeFrac = 0.55f; // inside this fraction: vaporized, no debris
+        const int MaxDebrisPerBlast = 260;
         int c0 = Mathf.Max(0, ColumnAt(center.x - radius));
         int c1 = Mathf.Min(cols - 1, ColumnAt(center.x + radius));
         int r0 = Mathf.Max(0, RowAt(center.y - radius));
         int r1 = Mathf.Min(rows - 1, RowAt(center.y + radius) + 1);
         float r2 = radius * radius;
         var carved = new System.Collections.Generic.List<int>(256);
+        var seeds = new System.Collections.Generic.List<DebrisSeed>(256);
         for (int c = c0; c <= c1; c++)
             for (int r = r0; r <= r1; r++)
             {
@@ -422,13 +430,22 @@ public class Terrain : MonoBehaviour
                 float dx = px - center.x, dy = py - center.y;
                 float d2 = dx * dx + dy * dy;
                 if (d2 > r2) continue;
-                float falloff = 1f - Mathf.Sqrt(d2) / radius;
+                float dist = Mathf.Sqrt(d2);
+                float falloff = 1f - dist / radius;
                 if (explosiveForce * falloff > GetHardnessAt(px, py) * HardnessTune)
                 {
+                    if (dist > radius * VaporizeFrac)
+                        seeds.Add(new DebrisSeed
+                        {
+                            pos = new Vector2(px, py),
+                            color = CellColor(c, r),
+                            dist = dist,
+                        });
                     solid[c, r] = false;
                     carved.Add(c * rows + r);
                 }
             }
+        SpawnDebris(center, radius, explosiveForce, seeds, MaxDebrisPerBlast);
         // Char / fracture the freshly exposed faces around the blast.
         foreach (int packed in carved)
         {
@@ -439,6 +456,47 @@ public class Terrain : MonoBehaviour
             TryWeatherFace(c, r - 1);
         }
         Rebuild();
+    }
+
+    struct DebrisSeed
+    {
+        public Vector2 pos;
+        public Color color;
+        public float dist;
+    }
+
+    /// <summary>
+    /// Scatters the outer-band debris: speed falls off with distance from the
+    /// blast (inner band flies fastest) and scales with the explosion force,
+    /// with an upward bias and random jitter so it reads as an explosion.
+    /// </summary>
+    void SpawnDebris(Vector2 center, float radius, float explosiveForce,
+        System.Collections.Generic.List<DebrisSeed> seeds, int maxDebris)
+    {
+        if (debris == null || seeds.Count == 0) return;
+        if (seeds.Count > maxDebris)
+        {
+            // Thin randomly, single pass (approximate cap is fine).
+            float keep = (float)maxDebris / seeds.Count;
+            seeds.RemoveAll(_ => Random.value > keep);
+        }
+        float vaporR = radius * 0.55f;
+        float band = Mathf.Max(0.01f, radius - vaporR);
+        foreach (var s in seeds)
+        {
+            float t = Mathf.Clamp01((s.dist - vaporR) / band); // 0 inner -> 1 edge
+            float speed = Mathf.Min(14f, Mathf.Lerp(1f, 0.35f, t) * explosiveForce * 0.12f);
+            Vector2 dir = s.pos - center;
+            if (dir.sqrMagnitude < 1e-6f) dir = Vector2.up;
+            dir.Normalize();
+            dir += Vector2.up * 0.55f; // explosions throw upward
+            dir.Normalize();
+            float ang = Random.Range(-0.4f, 0.4f);
+            float ca = Mathf.Cos(ang), sa = Mathf.Sin(ang);
+            dir = new Vector2(dir.x * ca - dir.y * sa, dir.x * sa + dir.y * ca);
+            dir *= speed * Random.Range(0.7f, 1.3f);
+            debris.SpawnChunk(s.pos, dir, s.color, pixelSize * Random.Range(0.8f, 1.4f));
+        }
     }
 
     void TryWeatherFace(int c, int r)
