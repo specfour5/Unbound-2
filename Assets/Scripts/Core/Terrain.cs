@@ -42,9 +42,9 @@ public class Terrain : MonoBehaviour
 
     [Header("Explosions")]
     [Tooltip("Blast force absorbed per solid cell the shockwave crosses. Makes surface blasts dig wide shallow bowls (energy vents into the air) and buried blasts blow spherical cavities (confined in all directions).")]
-    public float blastAbsorption = 8f;
+    public float blastAbsorption = 20f;
     [Tooltip("Random per-pixel variation in how easily blasts break terrain (force units). Higher = more ragged, less uniform craters.")]
-    public float breakNoise = 6f;
+    public float breakNoise = 10f;
 
     // Blast fraction inside which pixels vaporize instead of becoming debris.
     const float DebrisVaporizeFrac = 0.4f;

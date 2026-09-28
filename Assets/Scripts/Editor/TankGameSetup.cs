@@ -35,8 +35,8 @@ public static class TankGameSetup
         terrain.baseHeight = 7f;
         terrain.amplitude = 4f;
         terrain.seed = 42;
-        terrain.blastAbsorption = 8f;
-        terrain.breakNoise = 6f;
+        terrain.blastAbsorption = 20f;
+        terrain.breakNoise = 10f;
         terrainGO.GetComponent<MeshRenderer>().material =
             new Material(Shader.Find("Sprites/Default"));
         terrain.Generate();
@@ -115,8 +115,8 @@ public static class TankGameSetup
         terrain.seed = 0; // random hills every run
         terrain.rampDifficulty = true;
         terrain.deepStone = true;
-        terrain.blastAbsorption = 8f;
-        terrain.breakNoise = 6f;
+        terrain.blastAbsorption = 20f;
+        terrain.breakNoise = 10f;
         terrainGO.GetComponent<MeshRenderer>().material =
             new Material(Shader.Find("Sprites/Default"));
         // Flattened pads: player start + each enemy spawn (applied in Generate).
