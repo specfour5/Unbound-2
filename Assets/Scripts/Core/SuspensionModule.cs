@@ -88,8 +88,13 @@ public abstract class SuspensionModule : MonoBehaviour
         float distAlong = (anchor.y - groundY) / Mathf.Max(0.35f, -down.y);
 
         IsGrounded = distAlong < naturalLen;
-        CurrentLength = Mathf.Clamp(IsGrounded ? distAlong - contactRadius : maxLength,
-                                    minLength, maxLength);
+        // Track the ground continuously (clamped): the wheel extends smoothly
+        // toward full droop as the hull rises instead of snapping between
+        // "tucked" and "dangling" at the contact threshold. That snap was
+        // making the wheels (and the track band between them) pop up/down.
+        // Spring force stays continuous too: compression hits 0 exactly at
+        // the threshold, so lift-off and touchdown are seamless.
+        CurrentLength = Mathf.Clamp(distAlong - contactRadius, minLength, maxLength);
 
         // Spring only pushes (a dangling module doesn't yank the hull down).
         float compression = Mathf.Max(0f, restLength - CurrentLength);
