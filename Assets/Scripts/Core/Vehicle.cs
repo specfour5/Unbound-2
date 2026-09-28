@@ -143,7 +143,9 @@ public class Vehicle : MonoBehaviour
         for (int i = 0; i < ns.Count; i++)
         {
             var o = ns[i];
-            if (o != null && o.isActiveAndEnabled) { sum += o.springScalar; n++; }
+            // Airborne neighbors carry no load — exclude them so a dangling
+            // climbing idler doesn't soften the wheel next to it.
+            if (o != null && o.isActiveAndEnabled && o.IsGrounded) { sum += o.springScalar; n++; }
         }
         if (n == 0) return own;
         return Mathf.Lerp(own, sum / n, c);

@@ -510,6 +510,40 @@ public static class TankGameSetup
             if (rearWheel == null || wx < rearWheel.transform.localPosition.x) rearWheel = wheel;
         }
 
+        // ----- Climbing idlers: one past each end of the track, slightly raised -----
+        // The tank flips to face its direction of travel, so "ahead" is either
+        // end — a raised idler at both ends means there's always one at the
+        // leading edge to catch bumps and lift the hull over. They hang
+        // airborne on flat ground (mount 0.10 above the mains) and only bite
+        // when the nose/tail meets an edge. The track stays on the four mains.
+        float[] climberX = { -1.45f, 1.45f };
+        foreach (float wx in climberX)
+        {
+            var wgo = new GameObject("ClimberWheel");
+            wgo.transform.SetParent(bodyVisuals.transform, false);
+            wgo.transform.localPosition = new Vector3(wx, -0.02f, 0f);
+            var wheel = wgo.AddComponent<SuspensionWheel>();
+            wheel.restLength = 0.32f;
+            wheel.minLength = 0.08f;
+            wheel.maxLength = 0.55f;
+            wheel.stiffness = 220f;
+            wheel.damping = 28f;
+            wheel.driveForce = 15f;
+            wheel.lateralGrip = 50f;
+            wheel.rollingResistance = 2f;
+            wheel.wheelRadius = 0.26f;
+            wheel.probeSlack = 0.45f;
+            wheel.rutDepth = 0.2f;
+
+            var wvis = new GameObject("Visual");
+            wvis.transform.SetParent(wgo.transform, false);
+            wvis.transform.localScale = Vector3.one * 0.2167f;
+            var wsr = wvis.AddComponent<SpriteRenderer>();
+            wsr.sprite = wheelSpr;
+            wsr.sortingOrder = SortWheel;
+            wheel.wheelVisual = wvis.transform;
+        }
+
         // ----- Track band stretched between the end wheels -----
         var trackGO = new GameObject("Track");
         trackGO.transform.SetParent(bodyVisuals.transform, false);
