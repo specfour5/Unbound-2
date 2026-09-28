@@ -14,10 +14,12 @@ public class SetupMenu : MonoBehaviour
     public Button[] windButtons;
     public Button[] spawnButtons;
     public Button[] fuelButtons;
+    public Button[] weaponButtons;
     public Button startButton;
     public RectTransform windFrame;
     public RectTransform spawnFrame;
     public RectTransform fuelFrame;
+    public RectTransform weaponFrame;
 
     // Wind options: index 2 ("Default") matches the game's long-standing behavior.
     public static readonly string[] WindNames = { "None", "Light", "Default", "Strong", "Extreme" };
@@ -33,6 +35,7 @@ public class SetupMenu : MonoBehaviour
     int windIndex = 2;
     int spawnIndex = 1;
     int fuelIndex = 0;
+    int weaponIndex = 0;
 
     void Start()
     {
@@ -50,6 +53,12 @@ public class SetupMenu : MonoBehaviour
         {
             int k = i;
             fuelButtons[i].onClick.AddListener(() => SelectFuel(k));
+        }
+        for (int i = 0; i < weaponButtons.Length; i++)
+        {
+            int k = i;
+            if (weaponButtons[i].interactable)
+                weaponButtons[i].onClick.AddListener(() => SelectWeapon(k));
         }
         startButton.onClick.AddListener(StartBattle);
         Refresh();
@@ -74,6 +83,12 @@ public class SetupMenu : MonoBehaviour
         Refresh();
     }
 
+    public void SelectWeapon(int i)
+    {
+        weaponIndex = Mathf.Clamp(i, 0, weaponButtons.Length - 1);
+        Refresh();
+    }
+
     void Refresh()
     {
         for (int i = 0; i < windButtons.Length; i++)
@@ -94,12 +109,20 @@ public class SetupMenu : MonoBehaviour
             Tint(fuelButtons[i], sel);
             StyleLabel(fuelButtons[i], sel);
         }
+        for (int i = 0; i < weaponButtons.Length; i++)
+        {
+            bool sel = i == weaponIndex;
+            Tint(weaponButtons[i], sel);
+            StyleLabel(weaponButtons[i], sel);
+        }
         if (windFrame != null && windButtons.Length > 0)
             windFrame.anchoredPosition = windButtons[windIndex].GetComponent<RectTransform>().anchoredPosition;
         if (spawnFrame != null && spawnButtons.Length > 0)
             spawnFrame.anchoredPosition = spawnButtons[spawnIndex].GetComponent<RectTransform>().anchoredPosition;
         if (fuelFrame != null && fuelButtons.Length > 0)
             fuelFrame.anchoredPosition = fuelButtons[fuelIndex].GetComponent<RectTransform>().anchoredPosition;
+        if (weaponFrame != null && weaponButtons.Length > 0)
+            weaponFrame.anchoredPosition = weaponButtons[weaponIndex].GetComponent<RectTransform>().anchoredPosition;
     }
 
     static void Tint(Button b, bool selected)
@@ -122,6 +145,8 @@ public class SetupMenu : MonoBehaviour
     void StartBattle()
     {
         float dist = spawnDists[spawnIndex];
+        WeaponDef chosen = weaponIndex >= 0 && weaponIndex < WeaponCatalog.All.Count
+            ? WeaponCatalog.All[weaponIndex] : WeaponCatalog.BasicCannon;
         foreach (var t in turnManager.tanks)
         {
             float x = t.isPlayer ? -dist / 2f : dist / 2f;
@@ -130,6 +155,7 @@ public class SetupMenu : MonoBehaviour
             t.SetFacing(t.isPlayer ? 1 : -1);
             t.fuelPerTurn = fuelIndex == 1 ? t.baseFuelPerTurn * 2f : t.baseFuelPerTurn;
             t.unlimitedFuel = fuelIndex == 2;
+            t.weapon = chosen;
         }
         turnManager.windMultiplier = windMults[windIndex];
         if (panel != null) panel.SetActive(false);

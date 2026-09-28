@@ -45,6 +45,12 @@ public class Tank : Vehicle
     public float angleAdjustSpeed = 45f;
     public GameObject projectileTemplate;
 
+    [Header("Combat")]
+    [Tooltip("Weapon this tank fires (chosen in the setup menu).")]
+    public WeaponDef weapon;
+    [Tooltip("Resistance to penetrating shells: penetration above this punches straight into a component.")]
+    public float armorHardness = 1f;
+
     [Header("Scene refs (wired by the setup script)")]
     [Tooltip("All body visuals (hull, turret, wheels, tracks). Hidden on death.")]
     public GameObject bodyVisuals;
@@ -275,6 +281,7 @@ public class Tank : Vehicle
         if (pcol != null && col != null)
             Physics2D.IgnoreCollision(pcol, col);
 
+        proj.Configure(weapon ?? WeaponCatalog.BasicCannon);
         proj.Launch(AimDir * power, turnManager.Wind, OnProjectileExploded);
         ExplosionFX.Spawn(muzzle.position, 0.9f);
 

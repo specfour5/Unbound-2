@@ -328,10 +328,34 @@ public class Terrain : MonoBehaviour
         if (any) muddyDirty = true;
     }
 
-    /// <summary>Knocks out pixels in a circle centered on world position.</summary>
-    public void CarveCrater(Vector2 center, float radius)
+    /// <summary>
+    /// How resistant the terrain pixel at a world point is to penetration and
+    /// blasts. Stone 4, scorched 2.5, dirt/mud 2, grass 1, empty 0.
+    /// </summary>
+    public float GetHardnessAt(float x, float y)
     {
-        if (solid == null) return;
+        if (solid == null) return 0f;
+        int c = ColumnAt(x);
+        int r = Mathf.FloorToInt((y - gridY0) / pixelSize);
+        if (r < 0 || r >= rows || !solid[c, r]) return 0f;
+        if (stone[c, r]) return 4f;
+        if (scorched[c, r]) return 2.5f;
+        if (muddy[c, r]) return 2f;
+        int top = topRow[c];
+        if (top >= 0 && r > top - GrassDepth(c)) return 1f; // grass skin
+        return 2f; // dirt
+    }
+
+    /// <summary>
+    /// Knocks out pixels in a circle centered on world position. Harder pixels
+    /// resist: a pixel breaks when explosiveForce * falloff exceeds its
+    /// hardness (x HardnessTune), so force breaks harder terrain and the
+    /// crater shrinks in stone instead of ignoring it.
+    /// </summary>
+    public void CarveCrater(Vector2 center, float radius, float explosiveForce)
+    {
+        if (solid == null || radius <= 0f) return;
+        const float HardnessTune = 8f;
         int[] oldTop = (int[])topRow.Clone();
         bool[] colHit = new bool[cols];
         int c0 = Mathf.Max(0, ColumnAt(center.x - radius));
@@ -345,10 +369,15 @@ public class Terrain : MonoBehaviour
                 float px = LeftX + (c + 0.5f) * pixelSize;
                 float py = gridY0 + (r + 0.5f) * pixelSize;
                 float dx = px - center.x, dy = py - center.y;
-                if (dx * dx + dy * dy <= r2 && solid[c, r])
+                float d2 = dx * dx + dy * dy;
+                if (d2 <= r2 && solid[c, r])
                 {
-                    solid[c, r] = false;
-                    colHit[c] = true;
+                    float falloff = 1f - Mathf.Sqrt(d2) / radius;
+                    if (explosiveForce * falloff > GetHardnessAt(px, py) * HardnessTune)
+                    {
+                        solid[c, r] = false;
+                        colHit[c] = true;
+                    }
                 }
             }
         // Scorch the freshly exposed surface instead of regrowing grass.
