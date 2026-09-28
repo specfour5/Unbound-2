@@ -578,10 +578,18 @@ public class Terrain : MonoBehaviour
     }
 
     /// <summary>
-    /// Renders only boundary cells (solid cells touching empty space) as
-    /// pixel quads with a slight vertical gradient for form. Interior cells
-    /// are never visible and emit nothing, so even huge maps stay cheap.
+    /// Renders every solid cell as a pixel quad with a slight vertical
+    /// gradient for form. Side view shows the whole terrain face, so the
+    /// interior must be filled — boundary-only rendering leaves the ground
+    /// hollow/see-through.
     /// </summary>
+    readonly System.Collections.Generic.List<Vector3> rebuildVerts =
+        new System.Collections.Generic.List<Vector3>(65536);
+    readonly System.Collections.Generic.List<Color> rebuildColors =
+        new System.Collections.Generic.List<Color>(65536);
+    readonly System.Collections.Generic.List<int> rebuildTris =
+        new System.Collections.Generic.List<int>(98304);
+
     void Rebuild()
     {
         if (mesh == null)
@@ -592,9 +600,12 @@ public class Terrain : MonoBehaviour
             GetComponent<MeshFilter>().mesh = mesh;
         }
 
-        var verts = new System.Collections.Generic.List<Vector3>(16384);
-        var colors = new System.Collections.Generic.List<Color>(16384);
-        var tris = new System.Collections.Generic.List<int>(24576);
+        var verts = rebuildVerts;
+        var colors = rebuildColors;
+        var tris = rebuildTris;
+        verts.Clear();
+        colors.Clear();
+        tris.Clear();
 
         for (int c = 0; c < cols; c++)
         {
@@ -603,11 +614,6 @@ public class Terrain : MonoBehaviour
             for (int r = 0; r < rows; r++)
             {
                 if (!solid[c, r]) continue;
-                bool up = r + 1 < rows && solid[c, r + 1];
-                bool dn = r > 0 && solid[c, r - 1];
-                bool lf = c > 0 && solid[c - 1, r];
-                bool rt = c + 1 < cols && solid[c + 1, r];
-                if (up && dn && lf && rt) continue; // interior: never visible
 
                 float y0 = gridY0 + r * pixelSize;
                 float y1 = y0 + pixelSize;
