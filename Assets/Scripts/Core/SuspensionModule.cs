@@ -75,16 +75,32 @@ public abstract class SuspensionModule : MonoBehaviour
         rb = v != null ? v.GetComponent<Rigidbody2D>() : null;
         CurrentLength = restLength;
         prevCompression = 0f;
+        groundInit = false;
     }
 
     /// <summary>
-    /// Smooth terrain height under a point: Catmull-Rom through the column
-    /// surfaces (the same smooth silhouette the renderer draws), so the
-    /// suspension never sees the sim grid's pixel steps.
+    /// Downward ground probe through the true-2D terrain grid, with a little
+    /// temporal smoothing: the raw probe is quantized to the sim grid, and the
+    /// unsmoothed steps kicked the springs every cell (the old persistent
+    /// bounce). Large jumps (cliffs, landings, fresh craters) snap through
+    /// immediately so wheels still droop and plant without lag.
     /// </summary>
-    protected float SampleGround(float x)
+    float smoothGroundY;
+    bool groundInit;
+
+    protected float SampleGround(float x, float startY, float maxDist)
     {
-        return terrain.SampleSmoothHeight(x);
+        float gy = terrain.SampleGroundBelow(x, startY, maxDist);
+        if (!groundInit || Mathf.Abs(gy - smoothGroundY) > 1.0f)
+        {
+            smoothGroundY = gy;
+            groundInit = true;
+        }
+        else
+        {
+            smoothGroundY += (gy - smoothGroundY) * 0.35f;
+        }
+        return smoothGroundY;
     }
 
     /// <summary>
@@ -108,7 +124,7 @@ public abstract class SuspensionModule : MonoBehaviour
         float contactRadius = ContactRadius;
         float naturalLen = restLength + contactRadius;
         float probeLen = naturalLen + ProbeSlack;
-        float groundY = SampleGround(anchorPoint.x + down.x * probeLen);
+        float groundY = SampleGround(anchorPoint.x + down.x * probeLen, anchorPoint.y, probeLen);
         float distAlong = (anchorPoint.y - groundY) / Mathf.Max(0.35f, -down.y);
 
         IsGrounded = distAlong < naturalLen;

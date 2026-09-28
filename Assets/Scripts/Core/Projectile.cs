@@ -23,6 +23,8 @@ public class Projectile : MonoBehaviour
 
     WeaponDef weapon; // set by Configure; Basic Cannon if never set
     Rigidbody2D rb;
+    Terrain terrain; // cached; shells sweep the true-2D grid themselves
+    Vector2 lastSweepPos;
     float wind;
     Action onExploded;
     bool exploded;
@@ -45,12 +47,55 @@ public class Projectile : MonoBehaviour
         wind = windValue;
         onExploded = explodedCallback;
         rb.linearVelocity = velocity;
+        lastSweepPos = rb.position;
     }
 
     void FixedUpdate()
     {
-        if (!exploded && Mathf.Abs(wind) > 0.01f)
+        if (exploded) return;
+        // Terrain hit test: sweep the segment traveled since the last physics
+        // step against the grid, in pixelSize/2 increments. Terrain has no
+        // collider anymore (true-2D occupancy can't be an edge loop), and the
+        // sweep means fast shells can't skip through thin crater walls.
+        Vector2 cur = rb.position;
+        if (terrain == null) terrain = FindAnyObjectByType<Terrain>();
+        if (terrain != null && SweepHitsTerrain(lastSweepPos, cur, out Vector2 hitP))
+        {
+            OnTerrainHit(hitP);
+            return;
+        }
+        lastSweepPos = cur;
+        if (Mathf.Abs(wind) > 0.01f)
             rb.AddForce(Vector2.right * wind * WindEffect, ForceMode2D.Force);
+    }
+
+    bool SweepHitsTerrain(Vector2 a, Vector2 b, out Vector2 hit)
+    {
+        hit = b;
+        float dist = Vector2.Distance(a, b);
+        float step = terrain.pixelSize * 0.5f;
+        int n = Mathf.Max(1, Mathf.CeilToInt(dist / step));
+        for (int i = 1; i <= n; i++)
+        {
+            Vector2 p = Vector2.Lerp(a, b, (float)i / n);
+            if (terrain.IsSolidAt(p.x, p.y)) { hit = p; return true; }
+        }
+        return false;
+    }
+
+    void OnTerrainHit(Vector2 p)
+    {
+        var w = weapon ?? WeaponCatalog.BasicCannon;
+        float hardness = terrain.GetHardnessAt(p.x, p.y);
+        if (w.penetration > hardness)
+        {
+            // Burrows into the ground before detonating — with no column-top
+            // invariant this naturally digs angled tunnels, not just bowls.
+            Vector2 dir = rb.linearVelocity.sqrMagnitude > 0.01f
+                ? rb.linearVelocity.normalized : Vector2.down;
+            p += dir * (w.penetration - hardness) * 0.75f;
+        }
+        ExplodeAt(p);
     }
 
     void Update()
@@ -68,6 +113,8 @@ public class Projectile : MonoBehaviour
     void OnCollisionEnter2D(Collision2D collision)
     {
         if (exploded) return;
+        // Terrain hits are found by the grid sweep in FixedUpdate (terrain has
+        // no collider); physics collisions here are tanks only.
         var w = weapon ?? WeaponCatalog.BasicCannon;
         Vector2 p = collision.contacts.Length > 0
             ? collision.contacts[0].point : (Vector2)transform.position;
@@ -90,21 +137,6 @@ public class Projectile : MonoBehaviour
                 return;
             }
             // Otherwise the shell bursts on the armor: normal blast below.
-        }
-        else
-        {
-            var terrain = collision.gameObject.GetComponent<Terrain>();
-            if (terrain != null)
-            {
-                float hardness = terrain.GetHardnessAt(p.x, p.y);
-                if (w.penetration > hardness)
-                {
-                    // Burrows into the ground before detonating.
-                    Vector2 dir = rb.linearVelocity.sqrMagnitude > 0.01f
-                        ? rb.linearVelocity.normalized : Vector2.down;
-                    p += dir * (w.penetration - hardness) * 0.75f;
-                }
-            }
         }
         ExplodeAt(p);
     }

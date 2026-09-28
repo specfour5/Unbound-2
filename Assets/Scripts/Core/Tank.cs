@@ -367,7 +367,7 @@ public class Tank : Vehicle
     protected void UpdatePreview(float wind)
     {
         if (previewDots == null) return;
-        bool show = isPlayer && IsMyTurn && !HasFired && IsAlive;
+        bool show = isPlayer && IsAlive && mode != null && mode.CanFire(this);
         Vector2 p = muzzle.position;
         Vector2 v = AimDir * ShotPower;
         Vector2 accel = (Vector2)Physics2D.gravity * Projectile.GravityScale

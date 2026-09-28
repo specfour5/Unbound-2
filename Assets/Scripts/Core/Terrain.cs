@@ -1,13 +1,18 @@
 using UnityEngine;
 
 /// <summary>
-/// Destructible terrain with a smooth silhouette and pixel-style coloring.
-/// The ground is simulated on a coarse grid (explosions knock out circles,
-/// collision follows column tops), but rendered as smooth strips following a
-/// Catmull-Rom surface. Colors are evaluated on virtual 0.15u pixel cells, so
-/// it keeps the classic pixel-terrain look with none of the stair-stepped edges.
+/// True 2D destructible terrain: every grid cell is independently solid or
+/// empty, so explosions carve ragged bowls, shells can burrow sideways into
+/// tunnels, and overhangs / floating chunks are all representable. There is
+/// deliberately NO column-top invariant anywhere in this class.
+///
+/// Simulation stays on the coarse grid (pixelSize); rendering draws only
+/// boundary cells (solid cells touching empty) as pixel quads, so overhangs
+/// and tunnels render correctly. Physics never touches a terrain collider:
+/// suspension modules probe downward through the grid and projectiles sweep
+/// the grid along their flight path.
 /// </summary>
-[RequireComponent(typeof(MeshFilter), typeof(MeshRenderer), typeof(EdgeCollider2D))]
+[RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
 public class Terrain : MonoBehaviour
 {
     [System.Serializable]
@@ -32,7 +37,7 @@ public class Terrain : MonoBehaviour
     public bool deepStone;
 
     [Header("Simulation grid")]
-    [Tooltip("World units per sim cell. Smaller = finer crater edges. Rendering is smooth regardless.")]
+    [Tooltip("World units per sim cell. Smaller = finer crater edges and tunnels.")]
     public float pixelSize = 0.15f;
 
     [Header("Spawn flattening")]
@@ -48,24 +53,21 @@ public class Terrain : MonoBehaviour
     static readonly Color DirtDark = new Color(0.43f, 0.28f, 0.16f);
 
     bool[,] solid;
-    bool[,] scorched; // blast-charred pixels: never regrow grass
-    bool[,] stone;    // blast-exposed rock: grey instead of grass
+    bool[,] scorched; // blast-charred pixels: never grass
+    bool[,] stone;    // blast-fractured rock: grey instead of dirt
     bool[,] muddy;    // track-churned pixels: dark muddy dirt instead of grass
     bool muddyDirty;  // set when new track mud is marked; rebuilt throttled
     float lastMudRebuild = -10f;
     float[] compacted; // per-column wheel compaction this battle (world units)
     int cols, rows;
     float gridY0;
-    int[] topRow; // topmost solid row per column (-1 = empty)
     Mesh mesh;
-    EdgeCollider2D edge;
 
     public float LeftX => -width / 2f;
     public float RightX => width / 2f;
 
     void Awake()
     {
-        edge = GetComponent<EdgeCollider2D>();
         var renderer = GetComponent<MeshRenderer>();
         if (renderer.sharedMaterial == null)
             renderer.sharedMaterial = new Material(Shader.Find("Sprites/Default"));
@@ -82,6 +84,15 @@ public class Terrain : MonoBehaviour
     /// <summary>Builds the hills from layered sine waves, then applies flatten spots.</summary>
     public void Generate()
     {
+        // Projectiles sweep the grid manually now, so any stale edge collider
+        // baked by older scene builds must go (it would collide with ghosts).
+        var stale = GetComponent<EdgeCollider2D>();
+        if (stale != null)
+        {
+            if (Application.isPlaying) Destroy(stale);
+            else DestroyImmediate(stale);
+        }
+
         int useSeed = seed == 0 ? Random.Range(1, 100000) : seed;
         var rng = new System.Random(useSeed);
 
@@ -94,7 +105,6 @@ public class Terrain : MonoBehaviour
         muddy = new bool[cols, rows];
         muddyDirty = false;
         compacted = new float[cols];
-        topRow = new int[cols];
 
         float p1 = (float)rng.NextDouble() * Mathf.PI * 2f;
         float p2 = (float)rng.NextDouble() * Mathf.PI * 2f;
@@ -105,7 +115,6 @@ public class Terrain : MonoBehaviour
         float[] heights = new float[cols];
         for (int c = 0; c < cols; c++)
         {
-            float x = LeftX + (c + 0.5f) / cols * width;
             float t = (float)c / Mathf.Max(1, cols - 1);
             heights[c] = baseHeight
                 + Mathf.Sin(t * Mathf.PI * f1 + p1) * amplitude * 0.6f
@@ -124,13 +133,16 @@ public class Terrain : MonoBehaviour
         for (int c = 1; c < cols - 1; c++)
             heights[c] = (heights[c - 1] + heights[c] * 2f + heights[c + 1]) * 0.25f;
 
+        // Fill a depth-thick band under the surface contour.
         for (int c = 0; c < cols; c++)
         {
             float h = Mathf.Max(1.5f, heights[c]);
-            SetColumnSurface(c, h);
+            int rTop = RowAt(h);
+            int rBot = RowAt(h - depth);
+            for (int r = Mathf.Max(0, rBot); r <= Mathf.Min(rTop, rows - 1); r++)
+                solid[c, r] = true;
         }
 
-        RefreshTops(); // flattening reads surface heights, so tops must be current
         foreach (var spot in flattenSpots)
             ApplyFlatten(spot.x, spot.radius);
 
@@ -141,49 +153,83 @@ public class Terrain : MonoBehaviour
             for (int c = cols / 2; c < cols; c++)
             {
                 if (rng.NextDouble() > 0.35) continue;
-                int top = topRow[c];
-                int depthCells = 2 + rng.Next(5); // 2..6 px under the surface
-                int r = top - depthCells;
+                int r = TopSolidRow(c) - (2 + rng.Next(5)); // 2..6 px under the surface
                 if (r < 2) continue;
                 int blob = 1 + rng.Next(3); // 1..3 px tall
                 for (int rr = r; rr > r - blob && rr >= 0; rr--)
                     stone[c, rr] = true;
             }
-            RefreshTops();
         }
 
         float minSurface = float.MaxValue;
         for (int c = 0; c < cols; c++)
-            minSurface = Mathf.Min(minSurface, SurfaceY(c));
-        Debug.Log($"[Terrain] Generate done: cols={cols} pixelSize={pixelSize} " +
+            minSurface = Mathf.Min(minSurface, GetHeightAt(LeftX + (c + 0.5f) * pixelSize));
+        Debug.Log($"[Terrain] Generate done: cols={cols} rows={rows} pixelSize={pixelSize} " +
                   $"minSurface={minSurface:F2} flattenSpots={flattenSpots.Count}");
 
         Rebuild();
     }
 
-    /// <summary>Recomputes the topmost solid row per column.</summary>
-    void RefreshTops()
+    int ColumnAt(float x)
     {
-        for (int c = 0; c < cols; c++)
-        {
-            topRow[c] = -1;
-            for (int r = rows - 1; r >= 0; r--)
-                if (solid[c, r]) { topRow[c] = r; break; }
-        }
+        return Mathf.Clamp(Mathf.FloorToInt((x - LeftX) / pixelSize), 0, cols - 1);
     }
 
-    /// <summary>Fills/clears one column so its surface sits at height h.</summary>
-    void SetColumnSurface(int c, float h)
+    int RowAt(float y)
     {
-        for (int r = 0; r < rows; r++)
-        {
-            float cb = gridY0 + r * pixelSize;
-            float ct = cb + pixelSize;
-            solid[c, r] = cb < h && ct > h - depth;
-        }
+        return Mathf.FloorToInt((y - gridY0) / pixelSize);
     }
 
-    /// <summary>Registers a flattened spawn area (survives regeneration) and applies it now.</summary>
+    /// <summary>Topmost solid row in a column, or -1 when the column is empty.</summary>
+    int TopSolidRow(int c)
+    {
+        for (int r = rows - 1; r >= 0; r--)
+            if (solid[c, r]) return r;
+        return -1;
+    }
+
+    /// <summary>Height of the highest solid cell top at x (spawn placement).</summary>
+    public float GetHeightAt(float x)
+    {
+        if (solid == null) return baseHeight;
+        int t = TopSolidRow(ColumnAt(x));
+        return t < 0 ? gridY0 : gridY0 + (t + 1) * pixelSize;
+    }
+
+    /// <summary>
+    /// Downward probe for suspension modules: the top surface of the first
+    /// solid cell at column x at or below startY, or startY - maxDist when
+    /// there is nothing to stand on. Overhangs and tunnel floors just work:
+    /// the probe finds whatever is actually below the wheel.
+    /// </summary>
+    public float SampleGroundBelow(float x, float startY, float maxDist)
+    {
+        if (solid == null) return startY - maxDist;
+        int c = ColumnAt(x);
+        int r0 = Mathf.Min(RowAt(startY), rows - 1);
+        int r1 = Mathf.Max(RowAt(startY - maxDist), 0);
+        for (int r = r0; r >= r1; r--)
+            if (solid[c, r]) return gridY0 + (r + 1) * pixelSize;
+        return startY - maxDist;
+    }
+
+    /// <summary>
+    /// True when the given world point is inside solid terrain. Used by the
+    /// vehicle hull bumper probes and the projectile flight sweep.
+    /// </summary>
+    public bool IsSolidAt(float x, float y)
+    {
+        if (solid == null) return false;
+        int r = RowAt(y);
+        if (r < 0 || r >= rows) return false;
+        return solid[ColumnAt(x), r];
+    }
+
+    /// <summary>
+    /// Registers a flattened spawn pad (survives regeneration) and applies it
+    /// now. Per-cell version: clears everything above the pad height and fills
+    /// the depth band below it, feathering into the natural surface at the rim.
+    /// </summary>
     public void FlattenArea(float x, float radius)
     {
         flattenSpots.Add(new FlattenSpot { x = x, radius = radius });
@@ -199,66 +245,29 @@ public class Terrain : MonoBehaviour
         float h = GetHeightAt(x);
         int cc = ColumnAt(x);
         int cr = Mathf.Max(1, Mathf.CeilToInt(radius / pixelSize));
-        for (int c = Mathf.Max(0, cc - cr); c <= Mathf.Min(cols - 1, cc + cr); c++)
+        int c0 = Mathf.Max(0, cc - cr), c1 = Mathf.Min(cols - 1, cc + cr);
+        for (int c = c0; c <= c1; c++)
         {
+            float colX = LeftX + (c + 0.5f) * pixelSize;
             float blend = 1f - Mathf.Abs(c - cc) / (float)(cr + 1);
-            float colX = LeftX + (c + 0.5f) / cols * width;
-            float target = Mathf.Lerp(SurfaceY(c), h, blend * blend);
-            SetColumnSurface(c, target);
+            float target = Mathf.Lerp(GetHeightAt(colX), h, blend * blend);
+            int rTop = RowAt(target);
+            int rBot = RowAt(target - depth);
+            for (int r = 0; r < rows; r++)
+            {
+                bool want = r <= rTop && r >= rBot;
+                if (want && !solid[c, r])
+                {
+                    solid[c, r] = true;
+                    scorched[c, r] = stone[c, r] = muddy[c, r] = false;
+                }
+                else if (!want && solid[c, r])
+                {
+                    solid[c, r] = false;
+                    scorched[c, r] = stone[c, r] = muddy[c, r] = false;
+                }
+            }
         }
-    }
-
-    int ColumnAt(float x)
-    {
-        return Mathf.Clamp(Mathf.FloorToInt((x - LeftX) / pixelSize), 0, cols - 1);
-    }
-
-    float SurfaceY(int c)
-    {
-        return topRow[c] < 0 ? gridY0 : gridY0 + (topRow[c] + 1) * pixelSize;
-    }
-
-    public float GetHeightAt(float x)
-    {
-        if (solid == null) return baseHeight;
-        return SurfaceY(ColumnAt(x));
-    }
-
-    /// <summary>
-    /// Smooth (C1) terrain height: Catmull-Rom interpolation through the column
-    /// surfaces, clamped against overshoot like the renderer. The suspension
-    /// probes sample this instead of the quantized GetHeightAt: a stepped
-    /// signal kicked the springs every column and made the damper see huge
-    /// phantom compression velocities (the persistent hull bounce).
-    /// </summary>
-    public float SampleSmoothHeight(float x)
-    {
-        if (solid == null) return baseHeight;
-        float fx = (x - LeftX) / pixelSize - 0.5f; // column centers are the knots
-        int c = Mathf.FloorToInt(fx);
-        float t = Mathf.Clamp01(fx - c);
-        float h0 = SurfaceY(Mathf.Clamp(c - 1, 0, cols - 1));
-        float h1 = SurfaceY(Mathf.Clamp(c, 0, cols - 1));
-        float h2 = SurfaceY(Mathf.Clamp(c + 1, 0, cols - 1));
-        float h3 = SurfaceY(Mathf.Clamp(c + 2, 0, cols - 1));
-        float t2 = t * t, t3 = t2 * t;
-        float h = 0.5f * ((2f * h1) + (-h0 + h2) * t
-            + (2f * h0 - 5f * h1 + 4f * h2 - h3) * t2
-            + (-h0 + 3f * h1 - 3f * h2 + h3) * t3);
-        return Mathf.Clamp(h, Mathf.Min(h1, h2), Mathf.Max(h1, h2));
-    }
-
-    /// <summary>
-    /// True when the given world point is inside solid terrain. Used by the
-    /// vehicle hull bumper probes so the body never interpenetrates crater
-    /// walls (the hull collider no longer touches terrain; wheels probe it).
-    /// </summary>
-    public bool IsSolidAt(float x, float y)
-    {
-        if (solid == null) return false;
-        int r = Mathf.FloorToInt((y - gridY0) / pixelSize);
-        if (r < 0 || r >= rows) return false;
-        return solid[ColumnAt(x), r];
     }
 
     /// <summary>
@@ -274,7 +283,7 @@ public class Terrain : MonoBehaviour
         bool any = false;
         for (int c = c0; c <= c1; c++)
         {
-            int t = topRow[c];
+            int t = TopSolidRow(c);
             if (t >= 0 && !muddy[c, t] && !scorched[c, t]) { muddy[c, t] = true; any = true; }
         }
         if (any) muddyDirty = true;
@@ -284,7 +293,7 @@ public class Terrain : MonoBehaviour
     {
         // Fold newly churned track mud into the mesh a few times a second.
         // The interval scales with map length so long campaign maps don't
-        // hitch while driving (a full rebuild touches every column).
+        // hitch while driving (a full rebuild touches every cell).
         float interval = 0.2f * Mathf.Max(1f, cols / 800f);
         if (muddyDirty && Time.time - lastMudRebuild > interval)
         {
@@ -296,9 +305,9 @@ public class Terrain : MonoBehaviour
 
     /// <summary>
     /// Wheels: smoothly depresses the terrain as a vehicle rolls over it.
-    /// Each column is compacted toward a cosine-falloff rut (deepest at the
-    /// wheel center, feathering out to the edges), at most one pixel per call
-    /// and never deeper than depth total — so rolling back and forth can't
+    /// Each column's surface is compacted toward a cosine-falloff rut (deepest
+    /// at the wheel center, feathering out to the edges), at most one pixel per
+    /// call and never deeper than depth total — so rolling back and forth can't
     /// drill to bedrock. Call every physics frame while a wheel is grounded.
     /// Newly exposed pixels are churned to mud. The mesh refresh is throttled.
     /// </summary>
@@ -315,10 +324,9 @@ public class Terrain : MonoBehaviour
             if (d > 1f) continue;
             float want = depth * (0.5f + 0.5f * Mathf.Cos(d * Mathf.PI));
             if (compacted[c] + pixelSize > want + 1e-4f) continue; // already at rut depth
-            int t = topRow[c];
+            int t = TopSolidRow(c);
             if (t < 0) continue;
             solid[c, t] = false;
-            topRow[c] = t - 1;
             compacted[c] += pixelSize;
             if (t - 1 >= 0) muddy[c, t - 1] = true;
             any = true;
@@ -340,7 +348,7 @@ public class Terrain : MonoBehaviour
         int c1 = Mathf.Min(cols - 1, ColumnAt(x + radius));
         for (int c = c0; c <= c1; c++)
         {
-            int t = topRow[c];
+            int t = TopSolidRow(c);
             if (t < 0) continue;
             float cx = LeftX + (c + 0.5f) * pixelSize;
             float d = Mathf.Abs(cx - x) / radius;
@@ -352,11 +360,21 @@ public class Terrain : MonoBehaviour
                 solid[c, t - k] = false;
                 removed++;
             }
-            topRow[c] = t - removed;
             if (t - removed >= 0) muddy[c, t - removed] = true;
             any = true;
         }
         if (any) muddyDirty = true;
+    }
+
+    /// <summary>True when the cell has open sky within a few pixels above it.</summary>
+    bool UpExposed(int c, int r, int range)
+    {
+        for (int k = 1; k <= range; k++)
+        {
+            int rr = r + k;
+            if (rr >= rows || !solid[c, rr]) return true;
+        }
+        return false;
     }
 
     /// <summary>
@@ -367,13 +385,12 @@ public class Terrain : MonoBehaviour
     {
         if (solid == null) return 0f;
         int c = ColumnAt(x);
-        int r = Mathf.FloorToInt((y - gridY0) / pixelSize);
+        int r = RowAt(y);
         if (r < 0 || r >= rows || !solid[c, r]) return 0f;
         if (stone[c, r]) return 4f;
         if (scorched[c, r]) return 2.5f;
         if (muddy[c, r]) return 2f;
-        int top = topRow[c];
-        if (top >= 0 && r > top - GrassDepth(c)) return 1f; // grass skin
+        if (UpExposed(c, r, 4)) return 1f; // grass skin
         return 2f; // dirt
     }
 
@@ -382,91 +399,57 @@ public class Terrain : MonoBehaviour
     /// resist: a pixel breaks when explosiveForce * falloff exceeds its
     /// hardness (x HardnessTune), so force breaks harder terrain and the
     /// crater shrinks in stone instead of ignoring it.
+    /// There is no column-top cleanup: ragged walls, overhangs and tunnels are
+    /// all legal results. Freshly exposed faces are charred where they face
+    /// the sky and fractured to stone where they face sideways/down.
     /// </summary>
     public void CarveCrater(Vector2 center, float radius, float explosiveForce)
     {
         if (solid == null || radius <= 0f) return;
         const float HardnessTune = 8f;
-        int[] oldTop = (int[])topRow.Clone();
-        bool[] colHit = new bool[cols];
         int c0 = Mathf.Max(0, ColumnAt(center.x - radius));
         int c1 = Mathf.Min(cols - 1, ColumnAt(center.x + radius));
-        int r0 = Mathf.Max(0, Mathf.FloorToInt((center.y - radius - gridY0) / pixelSize));
-        int r1 = Mathf.Min(rows - 1, Mathf.CeilToInt((center.y + radius - gridY0) / pixelSize));
+        int r0 = Mathf.Max(0, RowAt(center.y - radius));
+        int r1 = Mathf.Min(rows - 1, RowAt(center.y + radius) + 1);
         float r2 = radius * radius;
+        var carved = new System.Collections.Generic.List<int>(256);
         for (int c = c0; c <= c1; c++)
             for (int r = r0; r <= r1; r++)
             {
+                if (!solid[c, r]) continue;
                 float px = LeftX + (c + 0.5f) * pixelSize;
                 float py = gridY0 + (r + 0.5f) * pixelSize;
                 float dx = px - center.x, dy = py - center.y;
                 float d2 = dx * dx + dy * dy;
-                if (d2 <= r2 && solid[c, r])
+                if (d2 > r2) continue;
+                float falloff = 1f - Mathf.Sqrt(d2) / radius;
+                if (explosiveForce * falloff > GetHardnessAt(px, py) * HardnessTune)
                 {
-                    float falloff = 1f - Mathf.Sqrt(d2) / radius;
-                    if (explosiveForce * falloff > GetHardnessAt(px, py) * HardnessTune)
-                    {
-                        solid[c, r] = false;
-                        colHit[c] = true;
-                    }
+                    solid[c, r] = false;
+                    carved.Add(c * rows + r);
                 }
             }
-        // Scorch the freshly exposed surface instead of regrowing grass.
-        for (int c = c0; c <= c1; c++)
+        // Char / fracture the freshly exposed faces around the blast.
+        foreach (int packed in carved)
         {
-            int nt = -1;
-            for (int r = rows - 1; r >= 0; r--)
-                if (solid[c, r]) { nt = r; break; }
-            if (nt >= 0 && nt < oldTop[c])
-            {
-                scorched[c, nt] = true;
-                if (nt - 1 >= 0) scorched[c, nt - 1] = true;
-            }
-        }
-        // Any grass left clinging to the blast zone becomes exposed stone.
-        for (int c = c0; c <= c1; c++)
-        {
-            if (!colHit[c]) continue;
-            int top = -1;
-            for (int r = rows - 1; r >= 0; r--)
-                if (solid[c, r]) { top = r; break; }
-            if (top < 0) continue;
-            int gd = GrassDepth(c);
-            for (int k = 0; k < 3 && top - k >= 0; k++)
-            {
-                int r = top - k;
-                if (!solid[c, r] || scorched[c, r] || stone[c, r]) continue;
-                if (k < gd) stone[c, r] = true;
-            }
-        }
-        // Shave 1-wide needles: the hardness test can leave a single hard column
-        // (usually a stone-capped rim) towering over a fresh crater while the
-        // dirt around it is blasted away. Anything towering 2+ px over both
-        // neighbors is an artifact: cut it level and scorch the fresh top.
-        {
-            int cc0 = Mathf.Max(0, c0 - 1), cc1 = Mathf.Min(cols - 1, c1 + 1);
-            int span = cc1 - cc0 + 1;
-            int[] tops = new int[span];
-            for (int c = cc0; c <= cc1; c++)
-            {
-                int t = -1;
-                for (int r = rows - 1; r >= 0; r--)
-                    if (solid[c, r]) { t = r; break; }
-                tops[c - cc0] = t;
-            }
-            for (int c = c0; c <= c1; c++)
-            {
-                int i = c - cc0;
-                int cap = Mathf.Max(tops[Mathf.Max(0, i - 1)], tops[Mathf.Min(span - 1, i + 1)]);
-                if (tops[i] - cap >= 2)
-                {
-                    for (int r = tops[i]; r > cap; r--) solid[c, r] = false;
-                    if (cap >= 0) scorched[c, cap] = true;
-                }
-            }
+            int c = packed / rows, r = packed % rows;
+            TryWeatherFace(c + 1, r);
+            TryWeatherFace(c - 1, r);
+            TryWeatherFace(c, r + 1);
+            TryWeatherFace(c, r - 1);
         }
         Rebuild();
     }
+
+    void TryWeatherFace(int c, int r)
+    {
+        if (c < 0 || c >= cols || r < 0 || r >= rows) return;
+        if (!solid[c, r] || scorched[c, r] || stone[c, r]) return;
+        // Sky-facing blast faces char; sideways/down faces fracture to stone.
+        if (UpExposed(c, r, 3)) scorched[c, r] = true;
+        else stone[c, r] = true;
+    }
+
     static float Hash01(int a, int b)
     {
         int h = (a * 73856093) ^ (b * 19349663);
@@ -474,48 +457,48 @@ public class Terrain : MonoBehaviour
         return ((h ^ (h >> 16)) & 0xffff) / 65535f;
     }
 
-    /// <summary>How many pixels deep the grass runs in a column (jagged edge).</summary>
-    static int GrassDepth(int c) => 2 + (int)(Hash01(c, 777) * 2.999f);
-
     /// <summary>
-    /// The classic pixel-terrain palette, evaluated on virtual 0.15u cells over
-    /// the smooth surface: crisp pixel blocks, smooth silhouette.
+    /// The classic pixel-terrain palette, evaluated per boundary cell:
+    /// grass where the cell sees sky, dirt below, charred / stone / mud
+    /// overrides from the blast and track systems.
     /// </summary>
-    Color PixelStyleColor(float x, float y, float surfY, bool scorched, bool stone, float shade)
+    Color CellColor(int c, int r)
     {
-        const float VP = 0.15f;
-        int px = Mathf.FloorToInt(x / VP);
-        int py = Mathf.FloorToInt(y / VP);
-        float depthPx = (surfY - y) / VP;
-        float h = Hash01(px * 3 + 1, py * 7 + 2);
-        int mc = ColumnAt(x);
-        int mt = topRow[mc];
-        bool mud = mt >= 0 && muddy[mc, mt] && depthPx < 1.5f;
-        Color c;
-        if (scorched && depthPx < 3f)
-            c = ScorchedColor(px, py);
-        else if (stone && depthPx < 3f)
-            c = StoneColor(px, py);
-        else if (mud)
-            c = new Color(0.34f, 0.25f, 0.15f) * (0.9f + 0.2f * h); // churned track mud
-        else if (depthPx < 0.5f && !scorched && !stone)
-            c = new Color(0.10f, 0.13f, 0.10f); // dark surface line, like the old outline
-        else if (depthPx < 2f + Hash01(px, 777) * 2.999f)
+        float px = LeftX + (c + 0.5f) * pixelSize;
+        float py = gridY0 + (r + 0.5f) * pixelSize;
+        int hx = Mathf.FloorToInt(px / 0.15f);
+        int hy = Mathf.FloorToInt(py / 0.15f);
+        float h = Hash01(hx * 3 + 1, hy * 7 + 2);
+
+        if (scorched[c, r]) return ScorchedColor(hx, hy);
+        if (stone[c, r]) return StoneColor(hx, hy);
+
+        // Grass band: cells with open sky not far above.
+        int upDist = 99;
+        for (int k = 1; k <= 5; k++)
+            if (r + k >= rows || !solid[c, r + k]) { upDist = k; break; }
+
+        if (muddy[c, r] && upDist <= 2)
+            return new Color(0.34f, 0.25f, 0.15f) * (0.9f + 0.2f * h); // churned track mud
+
+        if (upDist <= 4)
         {
-            if (h < 0.15f) c = GrassLight;
-            else if (h > 0.85f) c = GrassDark;
-            else c = GrassBase * (0.95f + 0.10f * h);
+            int gd = 2 + (int)(Hash01(hx, 777) * 2.999f); // jagged grass edge
+            if (upDist <= gd)
+            {
+                if (upDist == 1) return GrassDark * 0.8f; // dark crust on the surface line
+                if (h < 0.15f) return GrassLight;
+                if (h > 0.85f) return GrassDark;
+                return GrassBase * (0.95f + 0.10f * h);
+            }
         }
-        else
-        {
-            Color d;
-            if (h < 0.13f) d = DirtDark;
-            else if (h < 0.26f) d = DirtLight;
-            else d = DirtBase * (0.94f + 0.12f * h);
-            // Strong darkening with depth for a rich underground feel.
-            c = d * (1f - 0.5f * Mathf.Min(1f, depthPx / 22f));
-        }
-        return c * shade;
+
+        // Dirt: speckled, darkening with absolute depth for a rich underground feel.
+        Color d;
+        if (h < 0.13f) d = DirtDark;
+        else if (h < 0.26f) d = DirtLight;
+        else d = DirtBase * (0.94f + 0.12f * h);
+        return d * (0.55f + 0.45f * ((float)r / Mathf.Max(1, rows - 1)));
     }
 
     /// <summary>Charred blast-crater pixels: dark, mottled, never grass.</summary>
@@ -527,7 +510,7 @@ public class Terrain : MonoBehaviour
         return new Color(0.22f, 0.16f, 0.12f) * (0.92f + 0.16f * h1);
     }
 
-    /// <summary>Blast-exposed rock: neutral grey stone instead of grass.</summary>
+    /// <summary>Blast-fractured rock: neutral grey stone instead of dirt.</summary>
     static Color StoneColor(int c, int r)
     {
         float h1 = Hash01(c * 9 + 5, r * 13 + 11);
@@ -536,113 +519,62 @@ public class Terrain : MonoBehaviour
         return new Color(0.51f, 0.51f, 0.54f) * (0.92f + 0.16f * h1);
     }
 
+    /// <summary>
+    /// Renders only boundary cells (solid cells touching empty space) as
+    /// pixel quads with a slight vertical gradient for form. Interior cells
+    /// are never visible and emit nothing, so even huge maps stay cheap.
+    /// </summary>
     void Rebuild()
     {
         if (mesh == null)
         {
             mesh = new Mesh { name = "TerrainMesh" };
-            // Keep 32-bit indices so the strip meshes never hit the 65k vertex cap.
+            // Keep 32-bit indices so big maps never hit the 65k vertex cap.
             mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
             GetComponent<MeshFilter>().mesh = mesh;
         }
-        if (edge == null) edge = GetComponent<EdgeCollider2D>();
 
-        RefreshTops();
+        var verts = new System.Collections.Generic.List<Vector3>(16384);
+        var colors = new System.Collections.Generic.List<Color>(16384);
+        var tris = new System.Collections.Generic.List<int>(24576);
 
-        // ---- smooth surface line: Catmull-Rom through the column tops ----
-        const int SUB = 4; // surface subdivisions per sim column
-        int n = cols * SUB + 1;
-        float dx = width / (n - 1);
-        float[] colTop = new float[cols];
-        for (int c = 0; c < cols; c++) colTop[c] = SurfaceY(c);
-
-        float[] surfY = new float[n];
-        bool[] surfScorched = new bool[n];
-        bool[] surfStone = new bool[n];
-        for (int i = 0; i < n; i++)
+        for (int c = 0; c < cols; c++)
         {
-            float x = LeftX + i * dx;
-            float fc = Mathf.Clamp((x - LeftX) / pixelSize - 0.5f, 0f, cols - 1.001f);
-            int c0 = Mathf.Min(Mathf.FloorToInt(fc), cols - 2);
-            float fr = fc - Mathf.Floor(fc);
-            float p0 = colTop[Mathf.Max(0, c0 - 1)];
-            float p1 = colTop[c0];
-            float p2 = colTop[c0 + 1];
-            float p3 = colTop[Mathf.Min(cols - 1, c0 + 2)];
-            float fr2 = fr * fr, fr3 = fr2 * fr;
-            float y = 0.5f * (2f * p1 + (-p0 + p2) * fr
-                + (2f * p0 - 5f * p1 + 4f * p2 - p3) * fr2
-                + (-p0 + 3f * p1 - 3f * p2 + p3) * fr3);
-            // Never overshoot the neighboring column tops: no ringing on crater walls.
-            surfY[i] = Mathf.Clamp(y, Mathf.Min(p1, p2), Mathf.Max(p1, p2));
-
-            int c = Mathf.Clamp(Mathf.RoundToInt((x - LeftX) / pixelSize - 0.5f), 0, cols - 1);
-            int top = topRow[c];
-            bool sc = top >= 0 && scorched[c, top];
-            surfScorched[i] = sc;
-            surfStone[i] = !sc && top >= 0 &&
-                (stone[c, top] || (top - 1 >= 0 && stone[c, top - 1]));
-        }
-
-        // ---- slope shading: steep faces catch less light, gives the hills form ----
-        float[] shade = new float[n];
-        for (int i = 0; i < n; i++)
-        {
-            int a = Mathf.Max(0, i - 1), b2 = Mathf.Min(n - 1, i + 1);
-            float slope = Mathf.Abs(surfY[b2] - surfY[a]) / Mathf.Max(1e-4f, (b2 - a) * dx);
-            shade[i] = 1f - 0.18f * Mathf.Min(1f, slope * 0.8f);
-        }
-
-        // ---- smooth strips with pixel-style coloring ----
-        // Row offsets below the surface line. Near-surface rows sit one virtual
-        // pixel (0.15u) apart so the coloring renders as crisp pixel blocks;
-        // deeper rows are sparse (dark dirt needs little detail).
-        float[] rowOff = { 0f, -0.15f, -0.30f, -0.45f, -0.60f, -0.75f, -0.90f,
-                           -1.20f, -1.50f, -1.80f, -2.40f, -3.00f,
-                           -4.00f, -5.50f, -7.50f, -10.00f, -12.50f };
-        int nr = rowOff.Length;
-
-        var verts = new Vector3[(nr - 1) * n * 2];
-        var colors = new Color[(nr - 1) * n * 2];
-        var tris = new int[(nr - 1) * (n - 1) * 6];
-
-        for (int s = 0; s < nr - 1; s++)
-        {
-            int vb = s * n * 2;
-            for (int i = 0; i < n; i++)
+            float x0 = LeftX + c * pixelSize;
+            float x1 = x0 + pixelSize;
+            for (int r = 0; r < rows; r++)
             {
-                float x = LeftX + i * dx;
-                float sy = surfY[i];
-                float yt = Mathf.Max(sy + rowOff[s], gridY0);
-                float yb = Mathf.Max(sy + rowOff[s + 1], gridY0);
-                verts[vb + i * 2] = new Vector3(x, yt, 0);
-                verts[vb + i * 2 + 1] = new Vector3(x, yb, 0);
-                bool sc = surfScorched[i], st = surfStone[i];
-                colors[vb + i * 2] = PixelStyleColor(x, yt, sy, sc, st, shade[i]);
-                colors[vb + i * 2 + 1] = PixelStyleColor(x, yb, sy, sc, st, shade[i]);
-            }
-            int tb = s * (n - 1) * 6;
-            for (int i = 0; i < n - 1; i++)
-            {
-                int v0 = vb + i * 2;     // top_i
-                int v1 = v0 + 2;         // top_{i+1}
-                int v2 = v0 + 1;         // bottom_i
-                int v3 = v0 + 3;         // bottom_{i+1}
-                int t = tb + i * 6;
-                tris[t] = v0; tris[t + 1] = v2; tris[t + 2] = v1;
-                tris[t + 3] = v1; tris[t + 4] = v2; tris[t + 5] = v3;
+                if (!solid[c, r]) continue;
+                bool up = r + 1 < rows && solid[c, r + 1];
+                bool dn = r > 0 && solid[c, r - 1];
+                bool lf = c > 0 && solid[c - 1, r];
+                bool rt = c + 1 < cols && solid[c + 1, r];
+                if (up && dn && lf && rt) continue; // interior: never visible
+
+                float y0 = gridY0 + r * pixelSize;
+                float y1 = y0 + pixelSize;
+                Color baseCol = CellColor(c, r);
+                Color topCol = baseCol * 1.06f;
+                Color botCol = baseCol * 0.82f;
+
+                int i = verts.Count;
+                verts.Add(new Vector3(x0, y0, 0));
+                verts.Add(new Vector3(x1, y0, 0));
+                verts.Add(new Vector3(x1, y1, 0));
+                verts.Add(new Vector3(x0, y1, 0));
+                colors.Add(botCol);
+                colors.Add(botCol);
+                colors.Add(topCol);
+                colors.Add(topCol);
+                tris.Add(i); tris.Add(i + 1); tris.Add(i + 2);
+                tris.Add(i); tris.Add(i + 2); tris.Add(i + 3);
             }
         }
 
         mesh.Clear();
-        mesh.vertices = verts;
-        mesh.colors = colors;
-        mesh.triangles = tris;
+        mesh.SetVertices(verts);
+        mesh.SetColors(colors);
+        mesh.SetTriangles(tris, 0);
         mesh.RecalculateBounds();
-
-        var pts = new Vector2[cols];
-        for (int c = 0; c < cols; c++)
-            pts[c] = new Vector2(LeftX + c * pixelSize, SurfaceY(c));
-        edge.points = pts;
     }
 }
