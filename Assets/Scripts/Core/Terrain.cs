@@ -408,10 +408,34 @@ public class Terrain : MonoBehaviour
                 if (k < gd) stone[c, r] = true;
             }
         }
+        // Shave 1-wide needles: the hardness test can leave a single hard column
+        // (usually a stone-capped rim) towering over a fresh crater while the
+        // dirt around it is blasted away. Anything towering 2+ px over both
+        // neighbors is an artifact: cut it level and scorch the fresh top.
+        {
+            int cc0 = Mathf.Max(0, c0 - 1), cc1 = Mathf.Min(cols - 1, c1 + 1);
+            int span = cc1 - cc0 + 1;
+            int[] tops = new int[span];
+            for (int c = cc0; c <= cc1; c++)
+            {
+                int t = -1;
+                for (int r = rows - 1; r >= 0; r--)
+                    if (solid[c, r]) { t = r; break; }
+                tops[c - cc0] = t;
+            }
+            for (int c = c0; c <= c1; c++)
+            {
+                int i = c - cc0;
+                int cap = Mathf.Max(tops[Mathf.Max(0, i - 1)], tops[Mathf.Min(span - 1, i + 1)]);
+                if (tops[i] - cap >= 2)
+                {
+                    for (int r = tops[i]; r > cap; r--) solid[c, r] = false;
+                    if (cap >= 0) scorched[c, cap] = true;
+                }
+            }
+        }
         Rebuild();
     }
-
-    /// <summary>Deterministic 0..1 pseudo-random for per-pixel variation.</summary>
     static float Hash01(int a, int b)
     {
         int h = (a * 73856093) ^ (b * 19349663);
