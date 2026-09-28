@@ -3,10 +3,11 @@ using System.Collections.Generic;
 
 /// <summary>
 /// Explosion debris: terrain pixels from the outer band of a blast become
-/// short-lived physical chunks. They scatter with a force gradient (faster
-/// near the blast, slower at the edge, scaled by the explosion force),
-/// bounce off the terrain grid a few times with axis-separated collision,
-/// settle, then fade out. Purely visual — no gameplay effect.
+/// short-lived physical chunks, and destroyed stone becomes persistent
+/// rubble grouped by connectivity (pebbles to boulders). Chunks scatter
+/// with a force gradient, bounce off the terrain grid, settle, then fade.
+/// Later blasts shove rubble around — and shatter it, with bigger boulders
+/// needing a much closer hit. Purely visual — no gameplay effect.
 /// All chunks render through one dynamic mesh (a rotating quad each).
 /// </summary>
 [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
@@ -24,12 +25,19 @@ public class DebrisSystem : MonoBehaviour
         public float maxLife;
         public float still;
         public bool sleeping;
+        public float mass;   // stone rubble: pixel count; dirt = 1
+        public bool isStone;
     }
 
     const int MaxChunks = 600;
+    const int MaxStoneChunks = 220;
     const float Gravity = 22f;
     const float Bounce = 0.38f;
     const float FadeTime = 1.0f;
+    // Rubble shatter: a chunk breaks when blast force exceeds this * sqrt(mass).
+    // A lone pixel (mass 1) shatters at force 14 — well within a blast — while
+    // a 16-pixel boulder needs force 56, more than a basic cannon's 55.
+    const float ShatterBase = 14f;
 
     TerrainGrid terrain;
     Mesh mesh;
@@ -65,7 +73,100 @@ public class DebrisSystem : MonoBehaviour
             maxLife = Random.Range(4f, 5.5f),
             still = 0f,
             sleeping = false,
+            mass = 1f,
+            isStone = false,
         });
+    }
+
+    /// <summary>
+    /// Launches one stone rubble chunk. Size grows with the square root of
+    /// the pixel count; rubble lives much longer than dirt so it piles up.
+    /// The stone cap is enforced separately so rubble never crowds out dirt.
+    /// </summary>
+    public void SpawnStoneChunk(Vector2 pos, Vector2 vel, Color color, float mass)
+    {
+        int stoneCount = 0;
+        foreach (var ch in chunks) if (ch.isStone) stoneCount++;
+        if (stoneCount >= MaxStoneChunks)
+        {
+            for (int i = 0; i < chunks.Count; i++)
+                if (chunks[i].isStone) { chunks.RemoveAt(i); break; }
+        }
+        else if (chunks.Count >= MaxChunks) chunks.RemoveAt(0);
+        color.a = 1f;
+        float px = terrain != null ? terrain.pixelSize : 0.15f;
+        chunks.Add(new Chunk
+        {
+            pos = pos,
+            vel = vel,
+            rot = Random.Range(0f, Mathf.PI * 2f),
+            rotVel = Random.Range(-7f, 7f),
+            size = px * (1.2f + 0.9f * Mathf.Sqrt(mass)),
+            color = color,
+            age = 0f,
+            maxLife = Random.Range(20f, 30f),
+            still = 0f,
+            sleeping = false,
+            mass = mass,
+            isStone = true,
+        });
+    }
+
+    /// <summary>
+    /// A new blast shoves settled rubble (and loose dirt) and shatters stone:
+    /// impulse scales with force / mass, so pebbles fly and boulders barely
+    /// shudder. A stone chunk shatters when the arriving force exceeds
+    /// ShatterBase * sqrt(mass) — big chunks split into two smaller ones,
+    /// lone pixels just break.
+    /// </summary>
+    public void BlastPush(Vector2 center, float radius, float explosiveForce)
+    {
+        float pushR = radius * 1.6f;
+        // Deferred splits: spawning mid-iteration can shift chunk indices.
+        var splits = new System.Collections.Generic.List<Chunk>(8);
+        for (int i = chunks.Count - 1; i >= 0; i--)
+        {
+            Chunk ch = chunks[i];
+            Vector2 to = ch.pos - center;
+            float dist = to.magnitude;
+            if (dist > pushR) continue;
+            float force = explosiveForce * (1f - dist / pushR);
+            if (dist < 1e-4f) to = Vector2.up; else to /= dist;
+            Vector2 dir = to + Vector2.up * 0.45f;
+            dir.Normalize();
+            if (ch.isStone && force > ShatterBase * Mathf.Sqrt(ch.mass))
+            {
+                chunks.RemoveAt(i);
+                if (ch.mass >= 3f)
+                {
+                    // Split into two smaller rocks flung apart (spawned below).
+                    float half = ch.mass * 0.5f;
+                    Vector2 side = new Vector2(-dir.y, dir.x);
+                    splits.Add(new Chunk
+                    {
+                        pos = ch.pos + side * 0.1f,
+                        vel = dir * force * 0.12f + side * 2f,
+                        color = ch.color, mass = half,
+                    });
+                    splits.Add(new Chunk
+                    {
+                        pos = ch.pos - side * 0.1f,
+                        vel = dir * force * 0.12f - side * 2f,
+                        color = ch.color, mass = half,
+                    });
+                }
+                // else: pebble broken to dust.
+                continue;
+            }
+            ch.sleeping = false;
+            ch.still = 0f;
+            float m = ch.isStone ? ch.mass : 1f;
+            ch.vel += dir * (force * 0.35f / m) * Random.Range(0.7f, 1.3f);
+            ch.rotVel += Random.Range(-4f, 4f);
+            chunks[i] = ch;
+        }
+        foreach (var s in splits)
+            SpawnStoneChunk(s.pos, s.vel, s.color, s.mass);
     }
 
     void Update()

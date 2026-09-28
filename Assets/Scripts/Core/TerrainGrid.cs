@@ -420,10 +420,11 @@ public class TerrainGrid : MonoBehaviour
     /// There is no column-top cleanup: ragged walls, overhangs and tunnels are
     /// all legal results. A smoothing pass knocks single-pixel spikes off the
     /// fresh crater walls (break noise still keeps craters varied).
-    /// Pixels near the blast vaporize; destroyed pixels in
-    /// the outer band scatter as physical debris with a force gradient.
-    /// Freshly exposed faces are charred where they face the sky and fractured
-    /// to stone where they face sideways/down.
+    /// Pixels near the blast vaporize; destroyed dirt pixels in
+    /// the outer band scatter as physical debris with a force gradient, and
+    /// every destroyed stone pixel becomes rubble (grouped by connectivity,
+    /// so slabs fly as boulders). Freshly exposed faces are charred where
+    /// they face the sky; stone is never painted on, so rims stay diggable.
     /// </summary>
     public void CarveCrater(Vector2 center, float radius, float explosiveForce)
     {
@@ -437,6 +438,7 @@ public class TerrainGrid : MonoBehaviour
         float r2 = radius * radius;
         var carved = new System.Collections.Generic.List<int>(256);
         var seeds = new System.Collections.Generic.List<DebrisSeed>(256);
+        var stoneCells = new System.Collections.Generic.List<int>(128);
         for (int c = c0; c <= c1; c++)
             for (int r = r0; r <= r1; r++)
             {
@@ -454,7 +456,10 @@ public class TerrainGrid : MonoBehaviour
                 float noise = BreakNoiseAt(c, r);
                 if (force + noise > GetHardnessAt(px, py) * HardnessTune)
                 {
-                    if (dist > radius * DebrisVaporizeFrac)
+                    // Stone never vaporizes: every destroyed stone pixel
+                    // becomes rubble, grouped into chunks below.
+                    if (stone[c, r]) stoneCells.Add(c * rows + r);
+                    else if (dist > radius * DebrisVaporizeFrac)
                         seeds.Add(new DebrisSeed
                         {
                             pos = new Vector2(px, py),
@@ -465,7 +470,10 @@ public class TerrainGrid : MonoBehaviour
                     carved.Add(c * rows + r);
                 }
             }
+        // Shove/break rubble from earlier blasts before spawning this one's.
+        if (debris != null) debris.BlastPush(center, radius, explosiveForce);
         SpawnDebris(center, radius, explosiveForce, seeds, MaxDebrisPerBlast);
+        SpawnStoneRubble(center, radius, explosiveForce, stoneCells);
         SmoothCrater(center, radius, carved);
         // Char / fracture the freshly exposed faces around the blast.
         foreach (int packed in carved)
@@ -591,13 +599,73 @@ public class TerrainGrid : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Turns destroyed stone pixels into rubble: 8-connected stone cells are
+    /// grouped into a single chunk whose mass is the pixel count, so a lone
+    /// pixel flies as a pebble and a slab flies (or resists) as a boulder.
+    /// </summary>
+    void SpawnStoneRubble(Vector2 center, float radius, float explosiveForce,
+        System.Collections.Generic.List<int> stoneCells)
+    {
+        if (debris == null || stoneCells.Count == 0) return;
+        var remaining = new System.Collections.Generic.HashSet<int>(stoneCells);
+        var stack = new System.Collections.Generic.Stack<int>();
+        var comp = new System.Collections.Generic.List<int>(16);
+        while (remaining.Count > 0)
+        {
+            // Flood one 8-connected component.
+            comp.Clear();
+            int first = 0;
+            foreach (int p in remaining) { first = p; break; }
+            stack.Push(first);
+            remaining.Remove(first);
+            while (stack.Count > 0)
+            {
+                int p = stack.Pop();
+                comp.Add(p);
+                int cc = p / rows, rr = p % rows;
+                for (int dc = -1; dc <= 1; dc++)
+                    for (int dr = -1; dr <= 1; dr++)
+                    {
+                        if (dc == 0 && dr == 0) continue;
+                        int np = (cc + dc) * rows + (rr + dr);
+                        if (remaining.Contains(np)) { remaining.Remove(np); stack.Push(np); }
+                    }
+            }
+            // Centroid, mass, and an outward throw (heavier chunks slower).
+            Vector2 centroid = Vector2.zero;
+            Color col = Color.gray;
+            foreach (int p in comp)
+            {
+                int cc = p / rows, rr = p % rows;
+                centroid += new Vector2(LeftX + (cc + 0.5f) * pixelSize,
+                                        gridY0 + (rr + 0.5f) * pixelSize);
+                col = CellColor(cc, rr);
+            }
+            centroid /= comp.Count;
+            float mass = comp.Count;
+            Vector2 dir = centroid - center;
+            float dist = dir.magnitude;
+            if (dist < 1e-4f) dir = Vector2.up; else dir /= dist;
+            float falloff = Mathf.Clamp01(1f - dist / radius);
+            dir += Vector2.up * 0.55f;
+            dir.Normalize();
+            float speed = Mathf.Min(12f, (0.4f + 0.6f * falloff) * explosiveForce * 0.1f)
+                / Mathf.Sqrt(mass) * Random.Range(0.7f, 1.3f);
+            col *= 1.15f;
+            col.a = 1f;
+            debris.SpawnStoneChunk(centroid, dir * speed, col, mass);
+        }
+    }
+
     void TryWeatherFace(int c, int r)
     {
         if (c < 0 || c >= cols || r < 0 || r >= rows) return;
         if (!solid[c, r] || scorched[c, r] || stone[c, r]) return;
-        // Sky-facing blast faces char; sideways/down faces fracture to stone.
+        // Sky-facing blast faces char. Sideways/down faces keep their
+        // material — stone is no longer painted on, so crater rims stay
+        // diggable and stone only exists as natural deposits (and rubble).
         if (UpExposed(c, r, 3)) scorched[c, r] = true;
-        else stone[c, r] = true;
     }
 
     static float Hash01(int a, int b)
