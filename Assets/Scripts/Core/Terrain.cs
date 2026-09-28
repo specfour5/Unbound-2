@@ -46,6 +46,9 @@ public class Terrain : MonoBehaviour
     [Tooltip("Random per-pixel variation in how easily blasts break terrain (force units). Higher = more ragged, less uniform craters.")]
     public float breakNoise = 6f;
 
+    // Blast fraction inside which pixels vaporize instead of becoming debris.
+    const float DebrisVaporizeFrac = 0.4f;
+
     [Header("Spawn flattening")]
     public System.Collections.Generic.List<FlattenSpot> flattenSpots =
         new System.Collections.Generic.List<FlattenSpot>();
@@ -424,7 +427,6 @@ public class Terrain : MonoBehaviour
     {
         if (solid == null || radius <= 0f) return;
         const float HardnessTune = 8f;
-        const float VaporizeFrac = 0.55f; // inside this fraction: vaporized, no debris
         const int MaxDebrisPerBlast = 260;
         int c0 = Mathf.Max(0, ColumnAt(center.x - radius));
         int c1 = Mathf.Min(cols - 1, ColumnAt(center.x + radius));
@@ -450,7 +452,7 @@ public class Terrain : MonoBehaviour
                 float noise = (Hash01(c * 7 + 1, r * 13 + 5) - 0.5f) * breakNoise;
                 if (force + noise > GetHardnessAt(px, py) * HardnessTune)
                 {
-                    if (dist > radius * VaporizeFrac)
+                    if (dist > radius * DebrisVaporizeFrac)
                         seeds.Add(new DebrisSeed
                         {
                             pos = new Vector2(px, py),
@@ -560,7 +562,7 @@ public class Terrain : MonoBehaviour
             float keep = (float)maxDebris / seeds.Count;
             seeds.RemoveAll(_ => Random.value > keep);
         }
-        float vaporR = radius * 0.55f;
+        float vaporR = radius * DebrisVaporizeFrac;
         float band = Mathf.Max(0.01f, radius - vaporR);
         foreach (var s in seeds)
         {
@@ -575,7 +577,11 @@ public class Terrain : MonoBehaviour
             float ca = Mathf.Cos(ang), sa = Mathf.Sin(ang);
             dir = new Vector2(dir.x * ca - dir.y * sa, dir.x * sa + dir.y * ca);
             dir *= speed * Random.Range(0.7f, 1.3f);
-            debris.SpawnChunk(s.pos, dir, s.color, pixelSize * Random.Range(0.8f, 1.4f));
+            // Chunks render larger and brighter than their source pixel so
+            // they read against the terrain; slight overlap is fine.
+            Color chunkCol = s.color * 1.15f;
+            chunkCol.a = 1f;
+            debris.SpawnChunk(s.pos, dir, chunkCol, pixelSize * Random.Range(1.8f, 2.6f));
         }
     }
 

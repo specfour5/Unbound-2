@@ -108,6 +108,9 @@ public class DebrisSystem : MonoBehaviour
                 if (ch.vel.sqrMagnitude < 0.25f)
                 {
                     ch.still += dt;
+                    // FUTURE: debris-becomes-terrain goes here — when the
+                    // chunk settles, stamp its cells back into the grid via
+                    // Terrain instead of fading out.
                     if (ch.still > 0.7f) { ch.sleeping = true; ch.vel = Vector2.zero; }
                 }
                 else ch.still = 0f;
