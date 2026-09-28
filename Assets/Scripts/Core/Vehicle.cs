@@ -25,6 +25,12 @@ public class Vehicle : MonoBehaviour
     [Tooltip("Gated by turn logic: true only while this vehicle may drive.")]
     public bool driveEnabled;
 
+    [Header("Brakes")]
+    [Tooltip("Viscous brake force per unit of forward speed when coasting.")]
+    public float brakeStrength = 25f;
+    [Tooltip("Below this forward speed the brakes hold the tank dead still (no downhill creep).")]
+    public float brakeHoldSpeed = 0.35f;
+
     [Header("Wall bumpers")]
     [Tooltip("How far a penetrating hull is nudged out of terrain per physics step.")]
     public float bumperPush = 0.07f;
@@ -95,6 +101,18 @@ public class Vehicle : MonoBehaviour
             if (m == null || !m.isActiveAndEnabled) continue;
             m.Simulate(dt);
             if (m.IsGrounded) AnyGrounded = true;
+        }
+
+        // Brakes: foot off the pedal during the drive phase — stop the roll
+        // promptly and hold still on slopes instead of creeping downhill.
+        // (Not applied once drive is disabled, so knockback still slides.)
+        if (driveEnabled && Mathf.Abs(moveInput) <= 0.01f && AnyGrounded)
+        {
+            Vector2 fwd = Forward;
+            float speedF = Vector2.Dot(rb.linearVelocity, fwd);
+            rb.AddForce(-fwd * (speedF * brakeStrength));
+            if (Mathf.Abs(speedF) < brakeHoldSpeed)
+                rb.linearVelocity -= fwd * speedF; // static hold: cancel drift
         }
 
         RunBumpers();
