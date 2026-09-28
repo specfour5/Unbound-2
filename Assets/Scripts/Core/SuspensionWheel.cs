@@ -19,21 +19,26 @@ public class SuspensionWheel : SuspensionModule
 
     float spin;
 
+    protected override float ContactRadius => wheelRadius;
+    protected override float ProbeSlack => probeSlack;
+    protected override bool Rolling => true;
+
     public override void Simulate(float dt)
     {
-        bool grounded = SimulateCore(dt, wheelRadius, probeSlack, rolling: true);
         if (vehicle == null) return;
+        ApplyCoupledSpring();
+        ApplyDriveAndGrip();
 
         if (wheelVisual != null)
         {
             wheelVisual.localPosition = new Vector3(0f, -CurrentLength, 0f);
-            if (grounded && rb != null)
+            if (IsGrounded && rb != null)
                 // Spin with ground speed along the hull's (unflipped) right axis.
                 spin -= Vector2.Dot(rb.linearVelocity, vehicle.Forward) / wheelRadius * dt;
             wheelVisual.localRotation = Quaternion.Euler(0f, 0f, spin * Mathf.Rad2Deg);
         }
 
-        if (grounded && terrain != null)
+        if (IsGrounded && terrain != null)
         {
             float speedF = Mathf.Abs(vehicle.ForwardSpeed);
             if (speedF > 0.4f)

@@ -20,10 +20,17 @@ public class SuspensionLeg : SuspensionModule
 
     bool wasGrounded;
 
+    protected override float ContactRadius => footRadius;
+    protected override float ProbeSlack => probeSlack;
+    protected override bool Rolling => false;
+
     public override void Simulate(float dt)
     {
-        bool grounded = SimulateCore(dt, footRadius, probeSlack, rolling: false);
+        if (vehicle == null) return;
+        ApplyCoupledSpring();
+        ApplyDriveAndGrip();
 
+        bool grounded = IsGrounded;
         if (grounded && !wasGrounded && terrain != null)
             terrain.StampFootprint(LastContact.x, 0.35f); // touchdown: chunky print
         wasGrounded = grounded;

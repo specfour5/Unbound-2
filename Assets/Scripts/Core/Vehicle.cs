@@ -55,8 +55,16 @@ public class Vehicle : MonoBehaviour
 
         modules.Clear();
         modules.AddRange(GetComponentsInChildren<SuspensionModule>());
+        // Neighbors = adjacent modules along the hull (anti-roll coupling).
+        modules.Sort((a, b) => a.transform.localPosition.x.CompareTo(b.transform.localPosition.x));
         for (int i = 0; i < modules.Count; i++)
+        {
             modules[i].vehicle = this;
+            var ns = new List<SuspensionModule>();
+            if (i > 0) ns.Add(modules[i - 1]);
+            if (i < modules.Count - 1) ns.Add(modules[i + 1]);
+            modules[i].neighbors = ns;
+        }
     }
 
     /// <summary>Called once the battle wires up (TurnManager -> Tank.Setup).</summary>
@@ -73,6 +81,14 @@ public class Vehicle : MonoBehaviour
         float dt = Time.fixedDeltaTime;
 
         AnyGrounded = false;
+        // Pass 1: every module probes the terrain and computes its spring force.
+        for (int i = 0; i < modules.Count; i++)
+        {
+            var m = modules[i];
+            if (m == null || !m.isActiveAndEnabled) continue;
+            m.ComputeSuspension(dt);
+        }
+        // Pass 2: apply neighbor-coupled springs, drive friction, and grip.
         for (int i = 0; i < modules.Count; i++)
         {
             var m = modules[i];
@@ -90,6 +106,28 @@ public class Vehicle : MonoBehaviour
             rb.angularVelocity = Mathf.Sign(rb.angularVelocity) * maxSpin;
 
         Odometer += ForwardSpeed * dt;
+    }
+
+    /// <summary>
+    /// This module's spring force blended with its neighbors' (anti-roll):
+    /// a wheel that's suddenly loaded shares the push instead of rocking
+    /// the hull and handing the oscillation down the line.
+    /// </summary>
+    public float GetCoupledSpringForce(SuspensionModule m)
+    {
+        float own = m.springScalar;
+        var ns = m.neighbors;
+        float c = Mathf.Clamp01(m.neighborCoupling);
+        if (ns == null || ns.Count == 0 || c <= 0f) return own;
+        float sum = 0f;
+        int n = 0;
+        for (int i = 0; i < ns.Count; i++)
+        {
+            var o = ns[i];
+            if (o != null && o.isActiveAndEnabled) { sum += o.springScalar; n++; }
+        }
+        if (n == 0) return own;
+        return Mathf.Lerp(own, sum / n, c);
     }
 
     /// <summary>

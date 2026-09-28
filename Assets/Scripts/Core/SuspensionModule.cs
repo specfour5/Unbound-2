@@ -1,11 +1,14 @@
 using UnityEngine;
+using System.Collections.Generic;
 
 /// <summary>
-/// One ground-contact module (wheel, leg, ...). The module is a virtual
-/// sprung mass: it probes the terrain below its hull anchor, pushes the hull
-/// through a spring-damper, and contributes drive friction plus lateral grip
-/// at its contact patch. No rigidbody of its own, so any number of modules
-/// stays solver-stable.
+/// One ground-contact module (wheel, leg, ...). Two-pass simulation:
+/// pass 1 probes the terrain and computes a progressive spring force;
+/// pass 2 applies it averaged with neighboring modules (anti-roll coupling)
+/// plus per-module drive friction and lateral grip.
+/// The spring is progressive: push force ramps up toward full bump
+/// (bump-stop feel), and a gentle top-out spring resists full droop, so a
+/// bobbing wheel can't hand its oscillation to the next wheel along.
 /// </summary>
 public abstract class SuspensionModule : MonoBehaviour
 {
@@ -19,6 +22,16 @@ public abstract class SuspensionModule : MonoBehaviour
     [Tooltip("Spring damping per module.")]
     public float damping = 28f;
 
+    [Header("Progressive spring")]
+    [Tooltip("Extra firming near full bump: push force ramps up to (1 + this) x linear at max compression.")]
+    public float bumpProgressive = 1.5f;
+    [Tooltip("Top-out spring stiffness: gentle downward pull as the module nears full droop.")]
+    public float topOutStiffness = 60f;
+
+    [Header("Neighbor coupling")]
+    [Tooltip("Anti-roll: blend this module's spring force with its neighbors'. 0 = independent, 1 = full average.")]
+    [Range(0f, 1f)] public float neighborCoupling = 0.5f;
+
     [Header("Drive")]
     [Tooltip("Friction force this module contributes at full throttle and full load.")]
     public float driveForce = 15f;
@@ -31,6 +44,8 @@ public abstract class SuspensionModule : MonoBehaviour
 
     [HideInInspector] public Vehicle vehicle;
     [HideInInspector] public Terrain terrain;
+    [HideInInspector] public List<SuspensionModule> neighbors = new List<SuspensionModule>();
+    [HideInInspector] public float springScalar; // pass-1 result: signed force along hull-up (+ = push)
 
     public bool IsGrounded { get; protected set; }
     /// <summary>Current suspension length (anchor to axle/contact-center).</summary>
@@ -42,6 +57,16 @@ public abstract class SuspensionModule : MonoBehaviour
 
     protected Rigidbody2D rb;
     protected float prevCompression;
+    protected Vector2 anchorPoint;
+    protected Vector2 contactPoint;
+    protected float loadFactor;
+
+    /// <summary>Contact patch radius (wheel radius, foot radius, ...).</summary>
+    protected virtual float ContactRadius => 0.2f;
+    /// <summary>How far past the contact the ground probe reaches (droop detection).</summary>
+    protected virtual float ProbeSlack => 0.4f;
+    /// <summary>True for rolling contacts (wheels), false for planting ones (feet).</summary>
+    protected virtual bool Rolling => false;
 
     public virtual void Init(Vehicle v, Terrain t)
     {
@@ -61,83 +86,98 @@ public abstract class SuspensionModule : MonoBehaviour
               + terrain.GetHeightAt(x + r)) * 0.25f;
     }
 
-    public abstract void Simulate(float dt);
-
     /// <summary>
-    /// Shared spring/drive core. Probes the terrain along the hull's down
-    /// axis, applies the suspension spring at the anchor (so load differences
-    /// pitch and roll the hull), then drive friction, lateral grip and
-    /// rolling drag at the contact patch. Returns true when touching ground.
+    /// Pass 1: probe the terrain, update lengths, and compute the progressive
+    /// spring force (stored in springScalar, applied in pass 2).
     /// </summary>
-    protected bool SimulateCore(float dt, float contactRadius, float probeSlack, bool rolling)
+    public void ComputeSuspension(float dt)
     {
         if (vehicle == null || terrain == null || rb == null)
         {
             IsGrounded = false;
-            return false;
+            springScalar = 0f;
+            loadFactor = 0.25f;
+            return;
         }
 
         Transform hull = vehicle.transform;
-        Vector2 anchor = hull.TransformPoint(transform.localPosition);
+        anchorPoint = hull.TransformPoint(transform.localPosition);
         Vector2 down = (Vector2)(hull.rotation * Vector2.down);
-        Vector2 up = -down;
 
+        float contactRadius = ContactRadius;
         float naturalLen = restLength + contactRadius;
-        float probeLen = naturalLen + probeSlack;
-        float groundY = SampleGround(anchor.x + down.x * probeLen);
-        float distAlong = (anchor.y - groundY) / Mathf.Max(0.35f, -down.y);
+        float probeLen = naturalLen + ProbeSlack;
+        float groundY = SampleGround(anchorPoint.x + down.x * probeLen);
+        float distAlong = (anchorPoint.y - groundY) / Mathf.Max(0.35f, -down.y);
 
         IsGrounded = distAlong < naturalLen;
-        // Track the ground continuously (clamped): the wheel extends smoothly
-        // toward full droop as the hull rises instead of snapping between
-        // "tucked" and "dangling" at the contact threshold. That snap was
-        // making the wheels (and the track band between them) pop up/down.
-        // Spring force stays continuous too: compression hits 0 exactly at
-        // the threshold, so lift-off and touchdown are seamless.
+        // Continuous ground tracking (no up/down snap at the threshold).
         CurrentLength = Mathf.Clamp(distAlong - contactRadius, minLength, maxLength);
 
-        // Spring only pushes (a dangling module doesn't yank the hull down).
+        float cMax = Mathf.Max(restLength - minLength, 0.01f);
         float compression = Mathf.Max(0f, restLength - CurrentLength);
         float compVel = (compression - prevCompression) / dt;
         prevCompression = compression;
 
-        Vector2 fwd = vehicle.Forward;
-        if (IsGrounded)
-        {
-            Vector2 springF = up * (stiffness * compression - damping * compVel);
-            if (Vector2.Dot(springF, up) < 0f) springF = Vector2.zero;
-            rb.AddForceAtPosition(springF, anchor);
+        // Progressive bump: push force ramps quadratically to
+        // (1 + bumpProgressive) x linear at full compression (bump stop).
+        float bumpT = Mathf.Clamp01(compression / cMax);
+        float bumpForce = stiffness * compression * (1f + bumpProgressive * bumpT * bumpT);
 
-            Vector2 contact = anchor + down * (CurrentLength + contactRadius);
-            LastContact = contact;
-            // Heavily loaded modules contribute more friction (weight transfer).
-            float loadF = Mathf.Clamp01(compression / (restLength * 0.6f) + 0.25f);
+        // Top-out spring: gentle downward pull over the droop range,
+        // strongest at full extension (resists topping out).
+        float droopMax = Mathf.Max(maxLength - restLength, 0.01f);
+        float droop = Mathf.Max(0f, CurrentLength - restLength);
+        float topT = Mathf.Clamp01(droop / droopMax);
+        float topOutForce = topOutStiffness * droop * topT;
 
-            // Drive friction and rolling drag act through the center of mass.
-            // Pushing at the ground contact would lever the hull into a
-            // wheelie (the contact sits ~1 unit below the CoM), which is
-            // what made the suspension porpoise under throttle.
-            float speedF = Vector2.Dot(rb.linearVelocity, fwd);
-            float driveF = 0f;
-            if (vehicle.DriveActive)
-            {
-                float input = Mathf.Clamp(vehicle.moveInput, -1f, 1f);
-                float target = input * vehicle.maxSpeed;
-                float gripF = target != 0f ? Mathf.Clamp01(1f - speedF / target) : 0f;
-                driveF = input * driveForce * grip * loadF * gripF;
-            }
-            float rollF = rolling ? -speedF * rollingResistance * loadF : 0f;
-            rb.AddForce(fwd * (driveF + rollF));
+        springScalar = bumpForce - damping * compVel - topOutForce;
+        // The spring may pull (top-out) but never harder than the top-out
+        // spring allows: a dangling module can't yank the hull down.
+        springScalar = Mathf.Max(springScalar, -topOutStiffness * droopMax);
 
-            // Lateral grip: kill sideways sliding at the contact patch.
-            Vector2 lat = new Vector2(-fwd.y, fwd.x);
-            float speedL = Vector2.Dot(rb.linearVelocity, lat);
-            rb.AddForceAtPosition(-lat * (speedL * lateralGrip * grip * loadF), contact);
-        }
-        else
-        {
-            LastContact = anchor + down * (CurrentLength + contactRadius);
-        }
-        return IsGrounded;
+        // Heavily loaded modules contribute more friction (weight transfer).
+        loadFactor = Mathf.Clamp01(compression / (restLength * 0.6f) + 0.25f);
+        contactPoint = anchorPoint + down * (CurrentLength + contactRadius);
+        LastContact = contactPoint;
     }
+
+    /// <summary>Pass 2a: apply the neighbor-coupled spring force at the anchor.</summary>
+    protected void ApplyCoupledSpring()
+    {
+        if (rb == null || vehicle == null) return;
+        float f = vehicle.GetCoupledSpringForce(this);
+        Vector2 up = -(Vector2)(vehicle.transform.rotation * Vector2.down);
+        rb.AddForceAtPosition(up * f, anchorPoint);
+    }
+
+    /// <summary>
+    /// Pass 2b: drive friction and rolling drag through the center of mass
+    /// (no wheelie torque), lateral grip at the contact patch.
+    /// </summary>
+    protected void ApplyDriveAndGrip()
+    {
+        if (rb == null || vehicle == null || !IsGrounded) return;
+        Vector2 fwd = vehicle.Forward;
+
+        float speedF = Vector2.Dot(rb.linearVelocity, fwd);
+        float driveF = 0f;
+        if (vehicle.DriveActive)
+        {
+            float input = Mathf.Clamp(vehicle.moveInput, -1f, 1f);
+            float target = input * vehicle.maxSpeed;
+            float gripF = target != 0f ? Mathf.Clamp01(1f - speedF / target) : 0f;
+            driveF = input * driveForce * grip * loadFactor * gripF;
+        }
+        float rollF = Rolling ? -speedF * rollingResistance * loadFactor : 0f;
+        rb.AddForce(fwd * (driveF + rollF));
+
+        // Lateral grip: kill sideways sliding at the contact patch.
+        Vector2 lat = new Vector2(-fwd.y, fwd.x);
+        float speedL = Vector2.Dot(rb.linearVelocity, lat);
+        rb.AddForceAtPosition(-lat * (speedL * lateralGrip * grip * loadFactor), contactPoint);
+    }
+
+    /// <summary>Pass 2: apply forces (coupled spring + drive/grip) and update visuals.</summary>
+    public abstract void Simulate(float dt);
 }
