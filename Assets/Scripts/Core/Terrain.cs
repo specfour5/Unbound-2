@@ -42,9 +42,9 @@ public class Terrain : MonoBehaviour
 
     [Header("Explosions")]
     [Tooltip("Blast force absorbed per solid cell the shockwave crosses. Makes surface blasts dig wide shallow bowls (energy vents into the air) and buried blasts blow spherical cavities (confined in all directions).")]
-    public float blastAbsorption = 3f;
+    public float blastAbsorption = 8f;
     [Tooltip("Random per-pixel variation in how easily blasts break terrain (force units). Higher = more ragged, less uniform craters.")]
-    public float breakNoise = 10f;
+    public float breakNoise = 6f;
 
     [Header("Spawn flattening")]
     public System.Collections.Generic.List<FlattenSpot> flattenSpots =
@@ -413,7 +413,9 @@ public class Terrain : MonoBehaviour
     /// bowls (energy vents upward through air) while buried blasts blow
     /// roughly spherical cavities (confined in every direction).
     /// There is no column-top cleanup: ragged walls, overhangs and tunnels are
-    /// all legal results. Pixels near the blast vaporize; destroyed pixels in
+    /// all legal results. A smoothing pass knocks single-pixel spikes off the
+    /// fresh crater walls (break noise still keeps craters varied).
+    /// Pixels near the blast vaporize; destroyed pixels in
     /// the outer band scatter as physical debris with a force gradient.
     /// Freshly exposed faces are charred where they face the sky and fractured
     /// to stone where they face sideways/down.
@@ -460,6 +462,7 @@ public class Terrain : MonoBehaviour
                 }
             }
         SpawnDebris(center, radius, explosiveForce, seeds, MaxDebrisPerBlast);
+        SmoothCrater(center, radius, carved);
         // Char / fracture the freshly exposed faces around the blast.
         foreach (int packed in carved)
         {
@@ -484,6 +487,7 @@ public class Terrain : MonoBehaviour
     /// target point: the shockwave's path through the ground. Rays that vent
     /// through air lose nothing; rays buried in dirt lose the most.
     /// </summary>
+
     float ShockAbsorption(Vector2 from, float tx, float ty)
     {
         float dx = tx - from.x, dy = ty - from.y;
@@ -498,6 +502,47 @@ public class Terrain : MonoBehaviour
             if (IsSolidAt(from.x + dx * t, from.y + dy * t)) absorbed++;
         }
         return absorbed;
+    }
+
+    /// <summary>
+    /// Smoothing pass over the fresh crater: removes solid cells left jutting
+    /// into the blast (3+ empty 4-neighbors) that the break noise would
+    /// otherwise leave as single-pixel spikes. Limited to the blast radius so
+    /// tunnels and overhangs elsewhere are untouched. Smoothed cells join the
+    /// carved set so their fresh faces get weathered too.
+    /// </summary>
+    void SmoothCrater(Vector2 center, float radius, System.Collections.Generic.List<int> carved)
+    {
+        float r2 = radius * radius * 1.1f; // slight margin past the blast edge
+        for (int pass = 0; pass < 2; pass++)
+        {
+            var spikes = new System.Collections.Generic.List<int>(64);
+            int c0 = Mathf.Max(0, ColumnAt(center.x - radius));
+            int c1 = Mathf.Min(cols - 1, ColumnAt(center.x + radius));
+            int r0 = Mathf.Max(0, RowAt(center.y - radius));
+            int r1 = Mathf.Min(rows - 1, RowAt(center.y + radius) + 1);
+            for (int c = c0; c <= c1; c++)
+                for (int r = r0; r <= r1; r++)
+                {
+                    if (!solid[c, r]) continue;
+                    float px = LeftX + (c + 0.5f) * pixelSize;
+                    float py = gridY0 + (r + 0.5f) * pixelSize;
+                    float dx = px - center.x, dy = py - center.y;
+                    if (dx * dx + dy * dy > r2) continue;
+                    int empty = 0;
+                    if (c + 1 >= cols || !solid[c + 1, r]) empty++;
+                    if (c - 1 < 0 || !solid[c - 1, r]) empty++;
+                    if (r + 1 >= rows || !solid[c, r + 1]) empty++;
+                    if (r - 1 < 0 || !solid[c, r - 1]) empty++;
+                    if (empty >= 3) spikes.Add(c * rows + r);
+                }
+            if (spikes.Count == 0) break;
+            foreach (int packed in spikes)
+            {
+                solid[packed / rows, packed % rows] = false;
+                carved.Add(packed);
+            }
+        }
     }
 
     /// <summary>
