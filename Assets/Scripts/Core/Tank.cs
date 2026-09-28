@@ -38,12 +38,12 @@ public class Tank : Vehicle
     [Header("Weapon")]
     public float minAngle = 5f;
     public float maxAngle = 175f;
-    public float minPower = 8f;
-    public float maxPower = 32f;
     public float angle = 45f;
-    public float power = 18f;
     public float angleAdjustSpeed = 45f;
     public GameObject projectileTemplate;
+
+    /// <summary>Shot power is a function of the weapon, not a charge.</summary>
+    public float ShotPower => (weapon ?? WeaponCatalog.BasicCannon).muzzleVelocity;
 
     [Header("Combat")]
     [Tooltip("Weapon this tank fires (chosen in the setup menu).")]
@@ -282,7 +282,7 @@ public class Tank : Vehicle
             Physics2D.IgnoreCollision(pcol, col);
 
         proj.Configure(weapon ?? WeaponCatalog.BasicCannon);
-        proj.Launch(AimDir * power, turnManager.Wind, OnProjectileExploded);
+        proj.Launch(AimDir * ShotPower, turnManager.Wind, OnProjectileExploded);
         ExplosionFX.Spawn(muzzle.position, 0.9f);
 
         if (CameraFollow.Instance != null)
@@ -355,7 +355,7 @@ public class Tank : Vehicle
         if (previewDots == null) return;
         bool show = isPlayer && IsMyTurn && !HasFired && IsAlive;
         Vector2 p = muzzle.position;
-        Vector2 v = AimDir * power;
+        Vector2 v = AimDir * ShotPower;
         Vector2 accel = (Vector2)Physics2D.gravity * Projectile.GravityScale
                       + Vector2.right * wind * Projectile.WindEffect;
         const float dt = 0.12f;

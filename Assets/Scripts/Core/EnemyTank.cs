@@ -48,7 +48,7 @@ public class EnemyTank : Tank
         float dx = (to.x - from.x) * facing; // forward distance (positive = ahead)
         float dy = to.y - from.y;
         float G = -Physics2D.gravity.y * Projectile.GravityScale;
-        float v = Mathf.Lerp(minPower, maxPower, 0.6f);
+        float v = ShotPower; // fixed by the weapon; the AI solves the angle for it
 
         float solution = 45f;
         bool inRange = false;
@@ -67,8 +67,6 @@ public class EnemyTank : Tank
 
         float err = 1f - skill;
         angle = Mathf.Clamp(solution + Random.Range(-1f, 1f) * err * 22f, minAngle, maxAngle);
-        power = Mathf.Clamp(v * (inRange ? Random.Range(1f - err * 0.2f, 1f + err * 0.2f) : 1f),
-            minPower, maxPower);
         UpdateBarrel();
     }
 }

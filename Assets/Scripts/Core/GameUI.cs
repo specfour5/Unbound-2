@@ -34,8 +34,11 @@ public class GameUI : MonoBehaviour
         bannerText = FindText("BannerText");
         helpText = FindText("HelpText");
         fuelFill = transform.Find("FuelBar/Fill").GetComponent<Image>();
-        var powerBar = transform.Find("PowerBar/Fill");
-        powerFill = powerBar != null ? powerBar.GetComponent<Image>() : null;
+        // The charge bar is obsolete: shot power is fixed per weapon. Hide the
+        // baked bar at runtime (no scene rebuild needed) and show power as text.
+        var powerBarGO = transform.Find("PowerBar");
+        if (powerBarGO != null) powerBarGO.gameObject.SetActive(false);
+        powerFill = null;
         SetBannerAlpha(0f);
     }
 
@@ -52,16 +55,9 @@ public class GameUI : MonoBehaviour
         var tank = turnManager.CurrentTank;
         if (tank != null)
         {
-            powerText.text = $"Power  {tank.power:F0}";
+            powerText.text = $"Power  {tank.ShotPower:F0}";
             angleText.text = $"Angle  {tank.angle:F0}°";
             fuelFill.fillAmount = tank.unlimitedFuel ? 1f : Mathf.Clamp01(tank.FuelLeft / tank.fuelPerTurn);
-            if (powerFill != null)
-            {
-                float p = Mathf.Clamp01((tank.power - tank.minPower) / (tank.maxPower - tank.minPower));
-                powerFill.fillAmount = p;
-                // Charge gradient: green -> yellow -> red as power rises.
-                powerFill.color = Color.HSVToRGB(Mathf.Lerp(0.33f, 0f, p), 0.85f, 0.95f);
-            }
             timerText.text = $"{Mathf.CeilToInt(Mathf.Max(0f, turnManager.TimeLeft))}s";
             helpText.gameObject.SetActive(tank.isPlayer);
         }

@@ -528,7 +528,7 @@ public static class TankGameSetup
         fuelLabel.alignment = TextAnchor.UpperLeft;
         fuelLabel.text = "FUEL";
 
-        // Power bar (top-right, fills with a green->red gradient as you charge)
+        // Power bar (top-right; hidden at runtime now that power is fixed per weapon)
         var pbar = new GameObject("PowerBar");
         pbar.transform.SetParent(canvasGO.transform, false);
         var pbarRT = pbar.AddComponent<RectTransform>();
@@ -582,7 +582,7 @@ public static class TankGameSetup
         hRT.anchoredPosition = new Vector2(0f, 14f);
         hRT.sizeDelta = new Vector2(1100f, 30f);
         help.alignment = TextAnchor.MiddleCenter;
-        help.text = "A/D or \u2190/\u2192 move     W/S or \u2191/\u2193 aim     HOLD SPACE charge, RELEASE fire";
+        help.text = "A/D or \u2190/\u2192 move     W/S or \u2191/\u2193 aim     SPACE fire";
 
         return ui;
     }
