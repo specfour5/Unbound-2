@@ -31,6 +31,12 @@ public class WeaponDef
     public float muzzleVelocity = 22f;
     [Tooltip("Seconds between shots (used by the real-time mode).")]
     public float cooldown = 2.5f;
+
+    [Header("Elevation")]
+    [Tooltip("Max barrel elevation in degrees above the hull's front axis (vehicle-relative).")]
+    public float maxElevation = 45f;
+    [Tooltip("Min barrel elevation in degrees (negative = depression below the front axis).")]
+    public float minElevation = -10f;
 }
 
 /// <summary>All known weapons. New types get an entry here and appear in the setup menu.</summary>
@@ -47,6 +53,8 @@ public static class WeaponCatalog
         explosiveSize = 4.5f,
         muzzleVelocity = 22f,
         cooldown = 2.5f,
+        maxElevation = 45f,
+        minElevation = -10f,
     };
 
     public static readonly List<WeaponDef> All = new List<WeaponDef> { BasicCannon };

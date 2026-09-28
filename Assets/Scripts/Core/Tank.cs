@@ -36,8 +36,9 @@ public class Tank : Vehicle
     public bool unlimitedFuel = false;
 
     [Header("Weapon")]
-    public float minAngle = 5f;
-    public float maxAngle = 175f;
+    [Tooltip("Barrel elevation in degrees, RELATIVE to the vehicle's front axis " +
+        "(not world space): the barrel holds this angle as the hull pitches. " +
+        "Clamped to the weapon's min/max elevation.")]
     public float angle = 45f;
     public float angleAdjustSpeed = 45f;
     public GameObject projectileTemplate;
@@ -118,13 +119,19 @@ public class Tank : Vehicle
     protected bool CanControl =>
         IsAlive && (mode != null ? mode.ControlsActive(this) : (IsMyTurn && !HasFired));
 
-    /// <summary>World-space direction the barrel is pointing.</summary>
+    /// <summary>
+    /// World-space direction the barrel is pointing. The elevation angle is
+    /// vehicle-relative: FrontDirection already carries the hull's pitch, so
+    /// rotating it by `angle` keeps the barrel locked to the hull.
+    /// </summary>
     public Vector2 AimDir
     {
         get
         {
+            Vector2 front = FrontDirection;
             float r = angle * Mathf.Deg2Rad;
-            return new Vector2(Mathf.Cos(r) * facing, Mathf.Sin(r));
+            float c = Mathf.Cos(r), s = Mathf.Sin(r);
+            return new Vector2(front.x * c - front.y * s, front.x * s + front.y * c);
         }
     }
 
@@ -254,7 +261,8 @@ public class Tank : Vehicle
     public void AdjustAngle(float delta)
     {
         if (!CanAim()) return;
-        angle = Mathf.Clamp(angle + delta, minAngle, maxAngle);
+        var w = weapon ?? WeaponCatalog.BasicCannon;
+        angle = Mathf.Clamp(angle + delta, w.minElevation, w.maxElevation);
         UpdateBarrel();
     }
 
