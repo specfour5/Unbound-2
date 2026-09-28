@@ -662,10 +662,9 @@ public class TerrainGrid : MonoBehaviour
     {
         if (c < 0 || c >= cols || r < 0 || r >= rows) return;
         if (!solid[c, r] || scorched[c, r] || stone[c, r]) return;
-        // Sky-facing blast faces char. Sideways/down faces keep their
-        // material — stone is no longer painted on, so crater rims stay
-        // diggable and stone only exists as natural deposits (and rubble).
-        if (UpExposed(c, r, 3)) scorched[c, r] = true;
+        // Every fresh blast face chars — craters never grow grass back.
+        // (Natural stone is left alone; it never reads as grass anyway.)
+        scorched[c, r] = true;
     }
 
     static float Hash01(int a, int b)
