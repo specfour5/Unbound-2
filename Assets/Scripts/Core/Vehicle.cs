@@ -103,10 +103,11 @@ public class Vehicle : MonoBehaviour
             if (m.IsGrounded) AnyGrounded = true;
         }
 
-        // Brakes: foot off the pedal during the drive phase — stop the roll
+        // Brakes: no drive input and a wheel on the ground — stop the roll
         // promptly and hold still on slopes instead of creeping downhill.
-        // (Not applied once drive is disabled, so knockback still slides.)
-        if (driveEnabled && Mathf.Abs(moveInput) <= 0.01f && AnyGrounded)
+        // Stays applied after firing: the recoil impulse can still shove the
+        // tank, but the slide dies out instead of rolling away.
+        if (Mathf.Abs(moveInput) <= 0.01f && AnyGrounded)
         {
             Vector2 fwd = Forward;
             float speedF = Vector2.Dot(rb.linearVelocity, fwd);
