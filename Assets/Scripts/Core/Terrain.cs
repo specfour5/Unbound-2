@@ -41,8 +41,10 @@ public class Terrain : MonoBehaviour
     public float pixelSize = 0.15f;
 
     [Header("Explosions")]
-    [Tooltip("Blast force absorbed per solid cell the shockwave crosses. Makes surface blasts dig wide shallow bowls (energy vents into the air) and buried blasts blow spherical cavities (confined in all directions).")]
-    public float blastAbsorption = 20f;
+    [Tooltip("Blast energy eaten per unit of pixel hardness for each cell the shockwave passes through. Hard materials (stone) block blasts far more than soft dirt.")]
+    public float hardnessConsume = 20f;
+    [Tooltip("Blast energy lost per cell of empty air crossed. Lets blasts jump small gaps and travel tunnels, but die across wide open space.")]
+    public float airConsume = 2f;
     [Tooltip("Random per-pixel variation in how easily blasts break terrain (force units). Higher = more ragged, less uniform craters.")]
     public float breakNoise = 10f;
 
@@ -411,10 +413,10 @@ public class Terrain : MonoBehaviour
     /// resist: a pixel breaks when explosiveForce * falloff exceeds its
     /// hardness (x HardnessTune), so force breaks harder terrain and the
     /// crater shrinks in stone instead of ignoring it.
-    /// The shockwave loses blastAbsorption force per solid cell it crosses
-    /// between the blast and the pixel, so surface blasts dig wide shallow
-    /// bowls (energy vents upward through air) while buried blasts blow
-    /// roughly spherical cavities (confined in every direction).
+    /// The shockwave spends energy as it travels: each solid cell on the path
+    /// eats hardness * hardnessConsume, each air cell eats airConsume. Blasts
+    /// that chew through thick hard chunks die out fast; blasts that pop a
+    /// thin skin carry on through air gaps and tunnels.
     /// There is no column-top cleanup: ragged walls, overhangs and tunnels are
     /// all legal results. A smoothing pass knocks single-pixel spikes off the
     /// fresh crater walls (break noise still keeps craters varied).
@@ -447,7 +449,7 @@ public class Terrain : MonoBehaviour
                 float dist = Mathf.Sqrt(d2);
                 float falloff = 1f - dist / radius;
                 float force = explosiveForce * falloff
-                    - ShockAbsorption(center, px, py) * blastAbsorption;
+                    - PropagationCost(center, px, py);
                 // Positional noise (stable per location): no two craters break the same way.
                 float noise = (Hash01(c * 7 + 1, r * 13 + 5) - 0.5f) * breakNoise;
                 if (force + noise > GetHardnessAt(px, py) * HardnessTune)
@@ -485,25 +487,29 @@ public class Terrain : MonoBehaviour
     }
 
     /// <summary>
-    /// Counts the solid cells on the segment from the blast center to a
-    /// target point: the shockwave's path through the ground. Rays that vent
-    /// through air lose nothing; rays buried in dirt lose the most.
+    /// Energy budget the shockwave spends traveling from the blast center to
+    /// a target point: each solid cell on the way eats hardness *
+    /// hardnessConsume, each air cell eats airConsume. A blast that chews
+    /// through a thick hard chunk arrives far weaker than one that pops a
+    /// thin skin and jumps an air gap.
     /// </summary>
 
-    float ShockAbsorption(Vector2 from, float tx, float ty)
+    float PropagationCost(Vector2 from, float tx, float ty)
     {
         float dx = tx - from.x, dy = ty - from.y;
         float dist = Mathf.Sqrt(dx * dx + dy * dy);
         if (dist < 1e-6f) return 0f;
         float step = pixelSize * 0.5f;
         int n = Mathf.Max(1, Mathf.FloorToInt(dist / step));
-        int absorbed = 0;
+        float cost = 0f;
         for (int i = 0; i < n; i++)
         {
             float t = (i + 0.5f) / n;
-            if (IsSolidAt(from.x + dx * t, from.y + dy * t)) absorbed++;
+            float sx = from.x + dx * t, sy = from.y + dy * t;
+            if (IsSolidAt(sx, sy)) cost += GetHardnessAt(sx, sy) * hardnessConsume;
+            else cost += airConsume;
         }
-        return absorbed;
+        return cost * 0.5f; // two samples per cell: normalize to per-cell costs
     }
 
     /// <summary>

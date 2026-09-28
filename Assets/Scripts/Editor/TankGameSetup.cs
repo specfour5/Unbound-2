@@ -35,7 +35,8 @@ public static class TankGameSetup
         terrain.baseHeight = 7f;
         terrain.amplitude = 4f;
         terrain.seed = 42;
-        terrain.blastAbsorption = 20f;
+        terrain.hardnessConsume = 20f;
+        terrain.airConsume = 2f;
         terrain.breakNoise = 10f;
         terrainGO.GetComponent<MeshRenderer>().material =
             new Material(Shader.Find("Sprites/Default"));
@@ -115,7 +116,8 @@ public static class TankGameSetup
         terrain.seed = 0; // random hills every run
         terrain.rampDifficulty = true;
         terrain.deepStone = true;
-        terrain.blastAbsorption = 20f;
+        terrain.hardnessConsume = 20f;
+        terrain.airConsume = 2f;
         terrain.breakNoise = 10f;
         terrainGO.GetComponent<MeshRenderer>().material =
             new Material(Shader.Find("Sprites/Default"));
