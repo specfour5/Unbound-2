@@ -261,8 +261,8 @@ public static class TankGameSetup
             wheel.restLength = 0.32f;
             wheel.minLength = 0.08f;
             wheel.maxLength = 0.55f;
-            wheel.stiffness = 150f;
-            wheel.damping = 20f;
+            wheel.stiffness = 220f;
+            wheel.damping = 28f;
             wheel.driveForce = 15f;
             wheel.lateralGrip = 50f;
             wheel.rollingResistance = 2f;

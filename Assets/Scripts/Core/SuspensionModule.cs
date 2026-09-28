@@ -15,9 +15,9 @@ public abstract class SuspensionModule : MonoBehaviour
     public float minLength = 0.08f;
     public float maxLength = 0.55f;
     [Tooltip("Spring stiffness per module.")]
-    public float stiffness = 150f;
+    public float stiffness = 220f;
     [Tooltip("Spring damping per module.")]
-    public float damping = 20f;
+    public float damping = 28f;
 
     [Header("Drive")]
     [Tooltip("Friction force this module contributes at full throttle and full load.")]
