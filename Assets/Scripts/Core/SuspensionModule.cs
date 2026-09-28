@@ -132,7 +132,12 @@ public abstract class SuspensionModule : MonoBehaviour
         float topT = Mathf.Clamp01(droop / droopMax);
         float topOutForce = topOutStiffness * droop * topT;
 
-        springScalar = bumpForce - damping * compVel - topOutForce;
+        springScalar = bumpForce + damping * compVel - topOutForce;
+        // NOTE: the damper term is +damping*compVel because compVel is the
+        // *compression* velocity: when the hull rises, compression decreases
+        // (compVel < 0) and the damper must reduce the upward push. The old
+        // sign (-damping*compVel) was anti-damping: it fed energy into the
+        // bounce, which is why more damping made the bouncing worse.
         // The spring may pull (top-out) but never harder than the top-out
         // spring allows: a dangling module can't yank the hull down.
         springScalar = Mathf.Max(springScalar, -topOutStiffness * droopMax);
