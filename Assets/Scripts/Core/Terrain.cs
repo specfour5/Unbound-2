@@ -42,7 +42,9 @@ public class Terrain : MonoBehaviour
 
     [Header("Explosions")]
     [Tooltip("Blast force absorbed per solid cell the shockwave crosses. Makes surface blasts dig wide shallow bowls (energy vents into the air) and buried blasts blow spherical cavities (confined in all directions).")]
-    public float blastAbsorption = 2f;
+    public float blastAbsorption = 3f;
+    [Tooltip("Random per-pixel variation in how easily blasts break terrain (force units). Higher = more ragged, less uniform craters.")]
+    public float breakNoise = 10f;
 
     [Header("Spawn flattening")]
     public System.Collections.Generic.List<FlattenSpot> flattenSpots =
@@ -442,7 +444,9 @@ public class Terrain : MonoBehaviour
                 float falloff = 1f - dist / radius;
                 float force = explosiveForce * falloff
                     - ShockAbsorption(center, px, py) * blastAbsorption;
-                if (force > GetHardnessAt(px, py) * HardnessTune)
+                // Positional noise (stable per location): no two craters break the same way.
+                float noise = (Hash01(c * 7 + 1, r * 13 + 5) - 0.5f) * breakNoise;
+                if (force + noise > GetHardnessAt(px, py) * HardnessTune)
                 {
                     if (dist > radius * VaporizeFrac)
                         seeds.Add(new DebrisSeed
