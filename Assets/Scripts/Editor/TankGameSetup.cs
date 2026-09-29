@@ -149,7 +149,7 @@ public static class TankGameSetup
         Tank player = CreateTank("PlayerTank", new Color(0.30f, 0.75f, 0.35f), 1, true,
             projTemplate, rocketTemplate, terrain, playerStartX);
         player.unlimitedFuel = true; // driving IS the game; no stranding mid-run
-        player.weapon = WeaponCatalog.BasicCannon;
+        player.SetLoadout(null); // default loadout; the setup menu's picks override in Start()
 
         // --- Enemies: parked tanks with real-time AI; skill ramps with distance ---
         var enemies = new List<Tank>();
@@ -161,7 +161,7 @@ public static class TankGameSetup
             ai.realTimeAI = true;
             ai.skill = Mathf.Lerp(0.45f, 0.85f, (float)i / Mathf.Max(1, enemyCount - 1));
             ai.aggroRange = 48f;
-            e.weapon = WeaponCatalog.BasicCannon;
+            e.SetLoadout(null); // enemies fight on the main gun; AI never switches mounts
             enemies.Add(e);
         }
 
@@ -599,21 +599,38 @@ public static class TankGameSetup
         tank.turretPivot = pivot.transform;
         tank.muzzle = muzzle.transform;
 
-        // ----- Rear rocket launcher (hidden unless the weapon uses it) -----
-        var launcherPivot = new GameObject("LauncherPivot");
-        launcherPivot.transform.SetParent(bodyVisuals.transform, false);
-        launcherPivot.transform.localPosition = new Vector3(-1.25f, 0.75f, 0f);
-        var lsr = launcherPivot.AddComponent<SpriteRenderer>();
-        lsr.sprite = Art.Launcher;
-        lsr.sortingOrder = SortHull - 1; // background side by default; Tank.ConfigureWeapon adjusts
-        launcherPivot.SetActive(false);
+        // ----- Rear rocket launchers (one per rear hardpoint) -----
+        // The foreground mount renders above the hull, the background mount
+        // below it. Tank.ConfigureWeapon shows only the active weapon's
+        // launcher; each keeps its own sorting so FG/BG never swap.
+        var launcherPivotFG = new GameObject("LauncherPivot_FG");
+        launcherPivotFG.transform.SetParent(bodyVisuals.transform, false);
+        launcherPivotFG.transform.localPosition = new Vector3(-1.25f, 0.75f, 0f);
+        var lsrFG = launcherPivotFG.AddComponent<SpriteRenderer>();
+        lsrFG.sprite = Art.Launcher;
+        lsrFG.sortingOrder = SortHull + 1;
+        launcherPivotFG.SetActive(false);
 
-        var launcherMuzzle = new GameObject("LauncherMuzzle");
-        launcherMuzzle.transform.SetParent(launcherPivot.transform, false);
-        launcherMuzzle.transform.localPosition = new Vector3(0.6f, 0f, 0f);
+        var launcherMuzzleFG = new GameObject("LauncherMuzzle_FG");
+        launcherMuzzleFG.transform.SetParent(launcherPivotFG.transform, false);
+        launcherMuzzleFG.transform.localPosition = new Vector3(0.6f, 0f, 0f);
 
-        tank.launcherPivot = launcherPivot.transform;
-        tank.launcherMuzzle = launcherMuzzle.transform;
+        var launcherPivotBG = new GameObject("LauncherPivot_BG");
+        launcherPivotBG.transform.SetParent(bodyVisuals.transform, false);
+        launcherPivotBG.transform.localPosition = new Vector3(-1.25f, 0.75f, 0f);
+        var lsrBG = launcherPivotBG.AddComponent<SpriteRenderer>();
+        lsrBG.sprite = Art.Launcher;
+        lsrBG.sortingOrder = SortHull - 1;
+        launcherPivotBG.SetActive(false);
+
+        var launcherMuzzleBG = new GameObject("LauncherMuzzle_BG");
+        launcherMuzzleBG.transform.SetParent(launcherPivotBG.transform, false);
+        launcherMuzzleBG.transform.localPosition = new Vector3(0.6f, 0f, 0f);
+
+        tank.launcherPivotFG = launcherPivotFG.transform;
+        tank.launcherMuzzleFG = launcherMuzzleFG.transform;
+        tank.launcherPivotBG = launcherPivotBG.transform;
+        tank.launcherMuzzleBG = launcherMuzzleBG.transform;
 
         // Health bar (kept upright and at a fixed height in Tank.Update,
         // even though the hull pitches on its suspension).
@@ -800,6 +817,7 @@ public static class TankGameSetup
         MakeLabel("PowerText", top.transform, -420f, font, 22);
         MakeLabel("AngleText", top.transform, -210f, font, 22);
         MakeLabel("WindText", top.transform, 0f, font, 22);
+        MakeLabel("WeaponText", top.transform, 210f, font, 22);
         MakeLabel("TimerText", top.transform, 420f, font, 22);
 
         // Fuel bar
@@ -893,7 +911,7 @@ public static class TankGameSetup
         hRT.anchoredPosition = new Vector2(0f, 14f);
         hRT.sizeDelta = new Vector2(1100f, 30f);
         help.alignment = TextAnchor.MiddleCenter;
-        help.text = "A/D or \u2190/\u2192 move     W/S or \u2191/\u2193 aim     SPACE fire";
+        help.text = "A/D or \u2190/\u2192 move     W/S or \u2191/\u2193 aim     SPACE fire     1/2/3 switch weapon";
 
         return ui;
     }
@@ -968,19 +986,19 @@ public static class TankGameSetup
         boxRT.anchorMin = new Vector2(0.5f, 0.5f);
         boxRT.anchorMax = new Vector2(0.5f, 0.5f);
         boxRT.pivot = new Vector2(0.5f, 0.5f);
-        boxRT.sizeDelta = new Vector2(720f, 780f);
+        boxRT.sizeDelta = new Vector2(720f, 960f);
         var boxImg = box.AddComponent<Image>();
         boxImg.sprite = Art.CenteredWhite;
         boxImg.color = new Color(0.10f, 0.11f, 0.14f, 0.97f);
 
         var title = MakeLabel("Title", box.transform, 0f, font, 22);
         var titleRT = title.GetComponent<RectTransform>();
-        titleRT.anchoredPosition = new Vector2(0f, 340f);
+        titleRT.anchoredPosition = new Vector2(0f, 425f);
         titleRT.sizeDelta = new Vector2(600f, 60f);
         title.text = "BATTLE SETUP";
 
         var modeLabel = MakeLabel("ModeLabel", box.transform, 0f, font, 22);
-        modeLabel.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, 280f);
+        modeLabel.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, 365f);
         modeLabel.text = "MODE";
 
         var modeButtons = new Button[SetupMenu.ModeNames.Length];
@@ -988,15 +1006,15 @@ public static class TankGameSetup
         {
             float x = (i - (modeButtons.Length - 1) / 2f) * 208f;
             modeButtons[i] = MakeButton("Mode_" + SetupMenu.ModeNames[i], box.transform,
-                SetupMenu.ModeNames[i], font, 22, new Vector2(x, 235f), new Vector2(200f, 46f));
+                SetupMenu.ModeNames[i], font, 22, new Vector2(x, 320f), new Vector2(200f, 46f));
         }
         // Yellow selection frame behind the selected mode button ("Duel" = index 0).
         var modeFrame = MakeSelectionFrame(box.transform, new Vector2(200f, 46f));
         modeFrame.SetSiblingIndex(0);
-        modeFrame.anchoredPosition = new Vector2((0 - (modeButtons.Length - 1) / 2f) * 208f, 235f);
+        modeFrame.anchoredPosition = new Vector2((0 - (modeButtons.Length - 1) / 2f) * 208f, 320f);
 
         var windLabel = MakeLabel("WindLabel", box.transform, 0f, font, 22);
-        windLabel.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, 175f);
+        windLabel.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, 260f);
         windLabel.text = "WIND";
 
         var windButtons = new Button[SetupMenu.WindNames.Length];
@@ -1004,15 +1022,15 @@ public static class TankGameSetup
         {
             float x = (i - (windButtons.Length - 1) / 2f) * 136f;
             windButtons[i] = MakeButton("Wind_" + SetupMenu.WindNames[i], box.transform,
-                SetupMenu.WindNames[i], font, 22, new Vector2(x, 130f), new Vector2(128f, 46f));
+                SetupMenu.WindNames[i], font, 22, new Vector2(x, 215f), new Vector2(128f, 46f));
         }
         // Yellow selection frame behind the selected wind button ("Default" = index 2).
         var windFrame = MakeSelectionFrame(box.transform, new Vector2(128f, 46f));
         windFrame.SetSiblingIndex(0);
-        windFrame.anchoredPosition = new Vector2((2 - (windButtons.Length - 1) / 2f) * 136f, 130f);
+        windFrame.anchoredPosition = new Vector2((2 - (windButtons.Length - 1) / 2f) * 136f, 215f);
 
         var spawnLabel = MakeLabel("SpawnLabel", box.transform, 0f, font, 22);
-        spawnLabel.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, 70f);
+        spawnLabel.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, 155f);
         spawnLabel.text = "SPAWN DISTANCE";
 
         var spawnButtons = new Button[SetupMenu.SpawnNames.Length];
@@ -1020,15 +1038,15 @@ public static class TankGameSetup
         {
             float x = (i - (spawnButtons.Length - 1) / 2f) * 158f;
             spawnButtons[i] = MakeButton("Spawn_" + SetupMenu.SpawnNames[i], box.transform,
-                SetupMenu.SpawnNames[i], font, 22, new Vector2(x, 25f), new Vector2(150f, 46f));
+                SetupMenu.SpawnNames[i], font, 22, new Vector2(x, 110f), new Vector2(150f, 46f));
         }
         // Yellow selection frame behind the selected spawn button ("Default" = index 1).
         var spawnFrame = MakeSelectionFrame(box.transform, new Vector2(150f, 46f));
         spawnFrame.SetSiblingIndex(0);
-        spawnFrame.anchoredPosition = new Vector2((1 - (spawnButtons.Length - 1) / 2f) * 158f, 25f);
+        spawnFrame.anchoredPosition = new Vector2((1 - (spawnButtons.Length - 1) / 2f) * 158f, 110f);
 
         var fuelLabel = MakeLabel("FuelLabel", box.transform, 0f, font, 22);
-        fuelLabel.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, -35f);
+        fuelLabel.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, 50f);
         fuelLabel.text = "FUEL";
 
         var fuelButtons = new Button[SetupMenu.FuelNames.Length];
@@ -1036,33 +1054,43 @@ public static class TankGameSetup
         {
             float x = (i - (fuelButtons.Length - 1) / 2f) * 158f;
             fuelButtons[i] = MakeButton("Fuel_" + SetupMenu.FuelNames[i], box.transform,
-                SetupMenu.FuelNames[i], font, 22, new Vector2(x, -80f), new Vector2(150f, 46f));
+                SetupMenu.FuelNames[i], font, 22, new Vector2(x, 5f), new Vector2(150f, 46f));
         }
         // Yellow selection frame behind the selected fuel button ("Low" = index 0).
         var fuelFrame = MakeSelectionFrame(box.transform, new Vector2(150f, 46f));
         fuelFrame.SetSiblingIndex(0);
-        fuelFrame.anchoredPosition = new Vector2((0 - (fuelButtons.Length - 1) / 2f) * 158f, -80f);
+        fuelFrame.anchoredPosition = new Vector2((0 - (fuelButtons.Length - 1) / 2f) * 158f, 5f);
 
-        var weaponLabel = MakeLabel("WeaponLabel", box.transform, 0f, font, 22);
-        weaponLabel.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, -140f);
-        weaponLabel.text = "WEAPON";
-
-        var defs = WeaponCatalog.All;
-        var weaponButtons = new Button[defs.Count];
-        for (int i = 0; i < weaponButtons.Length; i++)
+        // One loadout row per tank hardpoint: the turret's front main-gun
+        // slot plus the two rear secondary mounts (foreground / background).
+        var layout = Tank.HardpointLayout;
+        for (int h = 0; h < layout.Length; h++)
         {
-            float x = (i - (weaponButtons.Length - 1) / 2f) * 178f;
-            weaponButtons[i] = MakeButton("Weapon_" + defs[i].id, box.transform,
-                defs[i].displayName, font, 22, new Vector2(x, -185f), new Vector2(170f, 46f));
-            weaponButtons[i].interactable = defs[i].available;
+            float labelY = -55f - h * 105f;
+            float buttonY = labelY - 45f;
+            var hpLabel = MakeLabel("HardpointLabel_" + layout[h].id, box.transform, 0f, font, 22);
+            hpLabel.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, labelY);
+            hpLabel.text = layout[h].displayName.ToUpper();
+
+            var opts = SetupMenu.HardpointOptions()[h];
+            var buttons = new Button[opts.Length];
+            for (int i = 0; i < buttons.Length; i++)
+            {
+                float x = (i - (buttons.Length - 1) / 2f) * 178f;
+                buttons[i] = MakeButton("Hardpoint_" + layout[h].id + "_" + (opts[i] ?? "none"),
+                    box.transform, SetupMenu.OptionLabel(opts[i]), font, 22,
+                    new Vector2(x, buttonY), new Vector2(170f, 46f));
+            }
+            // Yellow selection frame behind the default option.
+            var hpFrame = MakeSelectionFrame(box.transform, new Vector2(170f, 46f));
+            hpFrame.name = "HardpointFrame_" + layout[h].id;
+            hpFrame.SetSiblingIndex(0);
+            int def = SetupMenu.DefaultOptionIndex(h);
+            hpFrame.anchoredPosition = new Vector2((def - (buttons.Length - 1) / 2f) * 178f, buttonY);
         }
-        // Yellow selection frame behind the selected weapon button (index 0).
-        var weaponFrame = MakeSelectionFrame(box.transform, new Vector2(170f, 46f));
-        weaponFrame.SetSiblingIndex(0);
-        weaponFrame.anchoredPosition = new Vector2((0 - (weaponButtons.Length - 1) / 2f) * 178f, -185f);
 
         var start = MakeButton("StartButton", box.transform, "START BATTLE", font, 22,
-            new Vector2(0f, -270f), new Vector2(300f, 64f));
+            new Vector2(0f, -400f), new Vector2(300f, 64f));
         start.GetComponent<Image>().color = new Color(0.25f, 0.62f, 0.32f);
 
         var menu = dim.AddComponent<SetupMenu>();
@@ -1071,13 +1099,11 @@ public static class TankGameSetup
         menu.windButtons = windButtons;
         menu.spawnButtons = spawnButtons;
         menu.fuelButtons = fuelButtons;
-        menu.weaponButtons = weaponButtons;
         menu.startButton = start;
         menu.modeFrame = modeFrame;
         menu.windFrame = windFrame;
         menu.spawnFrame = spawnFrame;
         menu.fuelFrame = fuelFrame;
-        menu.weaponFrame = weaponFrame;
         return menu;
     }
 }

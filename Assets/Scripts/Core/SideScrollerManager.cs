@@ -45,10 +45,10 @@ public class SideScrollerManager : MonoBehaviour, IGameMode
 
     void Start()
     {
-        // Carry the duel setup menu's choices across the scene load.
-        if (GameConfig.weapon != null && player != null)
-            player.weapon = GameConfig.weapon;
-            player.ConfigureWeapon();
+        // Carry the duel setup menu's loadout across the scene load
+        // (null = default loadout).
+        if (player != null)
+            player.SetLoadout(GameConfig.loadoutWeaponIds);
         windMultiplier = GameConfig.windMultiplier;
 
         player.Setup(this, terrain);
@@ -92,7 +92,7 @@ public class SideScrollerManager : MonoBehaviour, IGameMode
 
     public bool ControlsActive(Tank t) => t != null && t.IsAlive && !GameOver;
 
-    public bool CanFire(Tank t) => t != null && t.IsAlive && !GameOver && t.cooldownLeft <= 0f;
+    public bool CanFire(Tank t) => t != null && t.IsAlive && !GameOver && t.CooldownLeft <= 0f;
 
     public Tank GetTargetFor(Tank me)
     {

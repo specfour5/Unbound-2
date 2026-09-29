@@ -2,6 +2,33 @@ using UnityEngine;
 using System.Collections.Generic;
 
 /// <summary>
+/// One weapon hardpoint on the tank: a mount slot accepting one class of
+/// weapons. The turret carries the front Main hardpoint; the rear carries
+/// two Secondary hardpoints, one rendering in front of the hull and one
+/// behind it.
+/// </summary>
+[System.Serializable]
+public class HardpointDef
+{
+    public string id = "main";
+    public string displayName = "Main Gun";
+    public WeaponMount mount = WeaponMount.Main;
+    public bool allowEmpty = false;
+    public string defaultWeaponId = "basic_cannon";
+}
+
+/// <summary>A weapon mounted on one hardpoint, with its own cooldown timer.</summary>
+[System.Serializable]
+public class WeaponSlot
+{
+    public HardpointDef hardpoint;
+    public WeaponDef weapon; // null = empty slot
+    [HideInInspector] public float cooldownLeft;
+    [HideInInspector] public Transform pivot;   // launcher pivot (rear hardpoints)
+    [HideInInspector] public Transform muzzleT; // launcher muzzle (rear hardpoints)
+}
+
+/// <summary>
 /// Base tank: component health, per-turn fuel, turret aiming, firing.
 /// The hull rides on the Vehicle suspension: sprung wheels hold it up and
 /// drive it, each contributing its own friction at its contact patch.
@@ -35,24 +62,65 @@ public class Tank : Vehicle
     [Tooltip("When true, driving never drains fuel.")]
     public bool unlimitedFuel = false;
 
+    /// <summary>
+    /// The tank's hardpoint layout: turret-front main gun plus two rear
+    /// secondary mounts (foreground and background). The setup menu lets the
+    /// player pick a weapon per hardpoint; number keys switch the active one.
+    /// </summary>
+    public static readonly HardpointDef[] HardpointLayout = new HardpointDef[]
+    {
+        new HardpointDef { id = "main", displayName = "Main Gun",
+            mount = WeaponMount.Main, allowEmpty = false, defaultWeaponId = "basic_cannon" },
+        new HardpointDef { id = "rear_fg", displayName = "Rear Mount (Front)",
+            mount = WeaponMount.Secondary, allowEmpty = true, defaultWeaponId = "mrl" },
+        new HardpointDef { id = "rear_bg", displayName = "Rear Mount (Back)",
+            mount = WeaponMount.Secondary, allowEmpty = true, defaultWeaponId = "" },
+    };
+
     [Header("Weapon")]
     [Tooltip("Barrel elevation in degrees, RELATIVE to the vehicle's front axis " +
         "(not world space): the barrel holds this angle as the hull pitches. " +
-        "Clamped to the weapon's min/max elevation.")]
+        "Clamped to the active weapon's min/max elevation.")]
     public float angle = 45f;
     public float angleAdjustSpeed = 45f;
     public GameObject projectileTemplate;
 
-    /// <summary>Shot power is a function of the weapon, not a charge.</summary>
-    public float ShotPower => (weapon ?? WeaponCatalog.BasicCannon).muzzleVelocity;
-    /// <summary>Time between shots, from the weapon (real-time modes).</summary>
-    public float ShotCooldown => (weapon ?? WeaponCatalog.BasicCannon).cooldown;
-    /// <summary>Seconds until the weapon can fire again.</summary>
-    public float cooldownLeft;
+    /// <summary>Weapons mounted on the hardpoints (built by SetLoadout).</summary>
+    public List<WeaponSlot> slots = new List<WeaponSlot>();
+    /// <summary>Index into slots of the currently active weapon.</summary>
+    public int activeSlotIndex = 0;
+
+    /// <summary>The active weapon: the one the number keys selected.</summary>
+    public WeaponDef ActiveWeapon
+    {
+        get
+        {
+            if (slots == null || activeSlotIndex < 0 || activeSlotIndex >= slots.Count)
+                return null;
+            return slots[activeSlotIndex].weapon;
+        }
+    }
+
+    /// <summary>The active weapon's mount slot.</summary>
+    public WeaponSlot ActiveSlot
+    {
+        get
+        {
+            if (slots == null || activeSlotIndex < 0 || activeSlotIndex >= slots.Count)
+                return null;
+            return slots[activeSlotIndex];
+        }
+    }
+
+    /// <summary>Shot power is a function of the active weapon, not a charge.</summary>
+    public float ShotPower => (ActiveWeapon ?? WeaponCatalog.BasicCannon).muzzleVelocity;
+    /// <summary>Time between shots, from the active weapon (real-time modes).</summary>
+    public float ShotCooldown => (ActiveWeapon ?? WeaponCatalog.BasicCannon).cooldown;
+    /// <summary>Seconds until the ACTIVE weapon can fire again. Each mounted
+    /// weapon cools down on its own timer.</summary>
+    public float CooldownLeft => ActiveSlot != null ? ActiveSlot.cooldownLeft : 0f;
 
     [Header("Combat")]
-    [Tooltip("Weapon this tank fires (chosen in the setup menu).")]
-    public WeaponDef weapon;
     [Tooltip("Resistance to penetrating shells: penetration above this punches straight into a component.")]
     public float armorHardness = 1f;
 
@@ -61,15 +129,17 @@ public class Tank : Vehicle
     public GameObject bodyVisuals;
     public Transform turretPivot;
     public Transform muzzle;
-    [Tooltip("Rear-mounted rocket launcher pivot (hidden unless the weapon uses a launcher).")]
-    public Transform launcherPivot;
-    [Tooltip("Muzzle at the launcher's tip; rockets spawn here.")]
-    public Transform launcherMuzzle;
+    [Tooltip("Rear launcher pivots, one per rear hardpoint: FG renders above " +
+        "the hull, BG below it. Only the active weapon's launcher is shown.")]
+    public Transform launcherPivotFG;
+    [Tooltip("Muzzle at the foreground launcher's tip; rockets spawn here.")]
+    public Transform launcherMuzzleFG;
+    [Tooltip("Background-side rear launcher pivot.")]
+    public Transform launcherPivotBG;
+    [Tooltip("Muzzle at the background launcher's tip; rockets spawn here.")]
+    public Transform launcherMuzzleBG;
     [Tooltip("Template for rocket projectiles (MRL).")]
     public GameObject rocketTemplate;
-    [Tooltip("True = launcher renders in front of the hull (foreground side), " +
-        "false = behind the hull (background side).")]
-    public bool launcherInForeground = false;
     [Tooltip("Hull body sprite object; flipped on the X axis to face the drive direction.")]
     public Transform hull;
     [Tooltip("Uniform base scale of the hull sprite (set by the setup script).")]
@@ -158,7 +228,10 @@ public class Tank : Vehicle
         mode = gameMode;
         base.Setup(tr); // Vehicle: terrain + suspension module init
         SetFacing(facing);
-        ConfigureWeapon();
+        // The setup menu (or scene builder) normally calls SetLoadout first;
+        // fall back to the default loadout so the tank always has weapons.
+        if (slots == null || slots.Count == 0) SetLoadout(null);
+        else ConfigureWeapon();
         if (hullRenderer != null) hullBaseColor = hullRenderer.color;
         if (turretRenderer != null) turretBaseColor = turretRenderer.color;
         if (weaponRenderer != null) weaponBaseColor = weaponRenderer.color;
@@ -212,7 +285,10 @@ public class Tank : Vehicle
 
     protected virtual void Update()
     {
-        if (cooldownLeft > 0f) cooldownLeft -= Time.deltaTime;
+        // Each mounted weapon cools down on its own timer.
+        if (slots != null)
+            foreach (var s in slots)
+                if (s.cooldownLeft > 0f) s.cooldownLeft -= Time.deltaTime;
         // Gate the drive on the game mode; the Vehicle suspension physics does
         // the rest (spring support, per-wheel friction, slope pitch, falls).
         driveEnabled = CanControl && (unlimitedFuel || FuelLeft > 0f);
@@ -271,7 +347,7 @@ public class Tank : Vehicle
     public void AdjustAngle(float delta)
     {
         if (!CanAim()) return;
-        var w = weapon ?? WeaponCatalog.BasicCannon;
+        var w = ActiveWeapon ?? WeaponCatalog.BasicCannon;
         angle = Mathf.Clamp(angle + delta, w.minElevation, w.maxElevation);
         UpdateBarrel();
     }
@@ -280,38 +356,83 @@ public class Tank : Vehicle
 
     protected void UpdateBarrel()
     {
-        var w = weapon ?? WeaponCatalog.BasicCannon;
-        Transform pivot = (w.usesLauncher && launcherPivot != null) ? launcherPivot : turretPivot;
+        var w = ActiveWeapon ?? WeaponCatalog.BasicCannon;
+        // Barrel-mounted weapons aim the turret; launcher weapons aim their
+        // own rear launcher pivot.
+        Transform pivot = turretPivot;
+        var s = ActiveSlot;
+        if (w.usesLauncher && s != null && s.pivot != null) pivot = s.pivot;
         if (pivot == null) return;
         float z = Mathf.Atan2(AimDir.y, AimDir.x) * Mathf.Rad2Deg;
         pivot.rotation = Quaternion.Euler(0f, 0f, z);
     }
 
     /// <summary>
-    /// Shows the rear launcher (hiding the turret/barrel) when the weapon
-    /// uses one, or vice versa. Call after assigning a new weapon.
+    /// Mounts weapons onto the hardpoints. weaponIds carries one entry per
+    /// HardpointLayout entry (null/empty = leave the slot empty); pass null
+    /// for the default loadout. Each rear slot is wired to its own launcher
+    /// pivot, and the main gun becomes the active weapon.
+    /// </summary>
+    public void SetLoadout(List<string> weaponIds)
+    {
+        slots = new List<WeaponSlot>();
+        for (int i = 0; i < HardpointLayout.Length; i++)
+        {
+            var hp = HardpointLayout[i];
+            string id = (weaponIds != null && i < weaponIds.Count) ? weaponIds[i] : hp.defaultWeaponId;
+            var w = WeaponCatalog.Find(id);
+            if (w == null && !hp.allowEmpty) w = WeaponCatalog.Find(hp.defaultWeaponId);
+            if (w == null && !hp.allowEmpty) w = WeaponCatalog.BasicCannon;
+            var slot = new WeaponSlot { hardpoint = hp, weapon = w };
+            if (hp.id == "rear_fg") { slot.pivot = launcherPivotFG; slot.muzzleT = launcherMuzzleFG; }
+            else if (hp.id == "rear_bg") { slot.pivot = launcherPivotBG; slot.muzzleT = launcherMuzzleBG; }
+            slots.Add(slot);
+        }
+        activeSlotIndex = 0;
+        for (int i = 0; i < slots.Count; i++)
+            if (slots[i].weapon != null) { activeSlotIndex = i; break; }
+        ConfigureWeapon();
+    }
+
+    /// <summary>Switch the active weapon (number keys). Empty slots are skipped.</summary>
+    public void SelectMount(int i)
+    {
+        if (slots == null || i < 0 || i >= slots.Count) return;
+        if (slots[i].weapon == null || i == activeSlotIndex) return;
+        activeSlotIndex = i;
+        var w = ActiveWeapon;
+        angle = Mathf.Clamp(angle, w.minElevation, w.maxElevation);
+        ConfigureWeapon();
+    }
+
+    /// <summary>Where the active weapon's projectile spawns.</summary>
+    protected Transform ActiveMuzzleTransform
+    {
+        get
+        {
+            var w = ActiveWeapon;
+            var s = ActiveSlot;
+            if (w != null && w.usesLauncher && s != null && s.muzzleT != null)
+                return s.muzzleT;
+            return muzzle;
+        }
+    }
+
+    /// <summary>
+    /// Shows the turret/barrel for barrel-mounted active weapons, or the
+    /// active mount's own rear launcher for launcher weapons. Only the active
+    /// weapon's visuals (and firing arc) are shown.
     /// </summary>
     public void ConfigureWeapon()
     {
-        var w = weapon ?? WeaponCatalog.BasicCannon;
+        var w = ActiveWeapon ?? WeaponCatalog.BasicCannon;
         bool launcher = w.usesLauncher;
-        if (launcherPivot != null) launcherPivot.gameObject.SetActive(launcher);
         if (turretPivot != null) turretPivot.gameObject.SetActive(!launcher);
-        // Foreground side renders above the hull, background side below it.
-        if (launcherPivot != null)
-        {
-            var lsr = launcherPivot.GetComponent<SpriteRenderer>();
-            if (lsr != null)
-            {
-                int hullOrder = 5;
-                if (hull != null)
-                {
-                    var hr = hull.GetComponent<SpriteRenderer>();
-                    if (hr != null) hullOrder = hr.sortingOrder;
-                }
-                lsr.sortingOrder = launcherInForeground ? hullOrder + 1 : hullOrder - 1;
-            }
-        }
+        if (slots != null)
+            foreach (var s in slots)
+                if (s.pivot != null)
+                    s.pivot.gameObject.SetActive(
+                        s == ActiveSlot && s.weapon != null && s.weapon.usesLauncher);
         angle = Mathf.Clamp(angle, w.minElevation, w.maxElevation);
         UpdateBarrel();
     }
@@ -331,12 +452,12 @@ public class Tank : Vehicle
         if (mode != null && !mode.CanFire(this)) return;
         if (mode == null && (!IsMyTurn || HasFired)) return;
         if (mode == null || mode.IsTurnBased) HasFired = true;
-        cooldownLeft = ShotCooldown;
+        var w = ActiveWeapon ?? WeaponCatalog.BasicCannon;
+        if (ActiveSlot != null) ActiveSlot.cooldownLeft = w.cooldown;
         HidePreview();
 
-        var w = weapon ?? WeaponCatalog.BasicCannon;
         bool launcher = w.usesLauncher;
-        Transform muzzleT = (launcher && launcherMuzzle != null) ? launcherMuzzle : muzzle;
+        Transform muzzleT = ActiveMuzzleTransform;
         GameObject template = (launcher && rocketTemplate != null) ? rocketTemplate : projectileTemplate;
         float wind = mode != null ? mode.Wind : 0f;
 
@@ -443,7 +564,10 @@ public class Tank : Vehicle
     {
         if (previewDots == null) return;
         bool show = isPlayer && IsAlive && mode != null && mode.CanFire(this);
-        Vector2 p = muzzle.position;
+        // The firing arc belongs to the active weapon only, and starts at
+        // its muzzle (turret or rear launcher).
+        Transform mt = ActiveMuzzleTransform;
+        Vector2 p = mt != null ? (Vector2)mt.position : (Vector2)transform.position;
         Vector2 v = AimDir * ShotPower;
         Vector2 accel = (Vector2)Physics2D.gravity * Projectile.GravityScale
                       + Vector2.right * wind * Projectile.WindEffect;

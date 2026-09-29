@@ -99,10 +99,10 @@ public class EnemyTank : Tank
         float worldAngle = solution + Random.Range(-1f, 1f) * err * 22f;
         // Convert the world-space solution to vehicle-relative elevation:
         // the signed angle from the (pitched) front axis to the desired
-        // world firing direction.
+        // world firing direction. The AI always uses its main-gun loadout.
         float sRad = worldAngle * Mathf.Deg2Rad;
         Vector2 desired = new Vector2(Mathf.Cos(sRad) * facing, Mathf.Sin(sRad));
-        var w = weapon ?? WeaponCatalog.BasicCannon;
+        var w = ActiveWeapon ?? WeaponCatalog.BasicCannon;
         angle = Mathf.Clamp(Vector2.SignedAngle(FrontDirection, desired),
             w.minElevation, w.maxElevation);
         UpdateBarrel();

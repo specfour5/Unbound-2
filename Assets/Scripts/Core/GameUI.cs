@@ -18,6 +18,7 @@ public class GameUI : MonoBehaviour
     Text angleText;
     Text windText;
     Text timerText;
+    Text weaponText;
     Text bannerText;
     Text helpText;
     Image fuelFill;
@@ -30,6 +31,7 @@ public class GameUI : MonoBehaviour
         angleText = FindText("TopBar/AngleText");
         windText = FindText("TopBar/WindText");
         timerText = FindText("TopBar/TimerText");
+        weaponText = FindText("TopBar/WeaponText");
         bannerText = FindText("BannerText");
         helpText = FindText("HelpText");
         fuelFill = transform.Find("FuelBar/Fill").GetComponent<Image>();
@@ -55,6 +57,14 @@ public class GameUI : MonoBehaviour
         {
             powerText.text = $"Power  {tank.ShotPower:F0}";
             angleText.text = $"Angle  {tank.angle:F0}°";
+            // Active weapon + its own cooldown countdown (1/2/3 switches).
+            var aw = tank.ActiveWeapon;
+            if (weaponText != null)
+                weaponText.text = aw != null
+                    ? tank.CooldownLeft > 0f
+                        ? $"{aw.displayName}  {tank.CooldownLeft:F1}s"
+                        : aw.displayName
+                    : "—";
             fuelFill.fillAmount = tank.unlimitedFuel ? 1f : Mathf.Clamp01(tank.FuelLeft / tank.fuelPerTurn);
             timerText.text = $"{Mathf.CeilToInt(Mathf.Max(0f, turnManager.TimeLeft))}s";
             helpText.gameObject.SetActive(tank.isPlayer);

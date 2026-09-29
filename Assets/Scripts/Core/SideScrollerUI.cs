@@ -30,18 +30,20 @@ public class SideScrollerUI : MonoBehaviour
             progressFill.fillAmount = manager.Progress01;
         if (manager.player != null)
         {
+            // Cooldown bar + label follow the ACTIVE weapon; each mounted
+            // weapon cools down on its own timer.
             if (cooldownFill != null)
             {
                 float cd = manager.player.ShotCooldown;
-                float ready = cd > 0f ? 1f - Mathf.Clamp01(manager.player.cooldownLeft / cd) : 1f;
+                float ready = cd > 0f ? 1f - Mathf.Clamp01(manager.player.CooldownLeft / cd) : 1f;
                 cooldownFill.fillAmount = ready;
                 cooldownFill.color = ready >= 1f
                     ? new Color(0.35f, 0.85f, 0.40f)
                     : new Color(0.85f, 0.70f, 0.25f);
             }
             if (cooldownLabel != null)
-                cooldownLabel.text = (manager.player.weapon != null
-                    ? manager.player.weapon.displayName : "Cannon").ToUpper();
+                cooldownLabel.text = (manager.player.ActiveWeapon != null
+                    ? manager.player.ActiveWeapon.displayName : "Cannon").ToUpper();
         }
         if (windText != null)
         {

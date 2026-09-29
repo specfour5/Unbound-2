@@ -2,6 +2,16 @@ using UnityEngine;
 using System.Collections.Generic;
 
 /// <summary>
+/// Which hardpoint class a weapon fits: Main weapons mount on the turret's
+/// front hardpoint, Secondary weapons mount on the rear hardpoints.
+/// </summary>
+public enum WeaponMount
+{
+    Main,
+    Secondary,
+}
+
+/// <summary>
 /// One weapon type. The battle's chosen def flows from the setup menu into
 /// every Tank, and each fired Projectile reads its behavior from the def:
 ///   penetration    - how easily the shell pushes through terrain pixels and
@@ -45,6 +55,10 @@ public class WeaponDef
     public float spreadDegrees = 0f;
     [Tooltip("True = fires from a rear-mounted launcher (hidden barrel/turret).")]
     public bool usesLauncher = false;
+
+    [Header("Hardpoint")]
+    [Tooltip("Which hardpoint class this weapon fits: turret front (Main) or rear mounts (Secondary).")]
+    public WeaponMount mount = WeaponMount.Main;
 }
 
 /// <summary>All known weapons. New types get an entry here and appear in the setup menu.</summary>
@@ -81,7 +95,17 @@ public static class WeaponCatalog
         projectileCount = 6,
         spreadDegrees = 4f,
         usesLauncher = true,
+        mount = WeaponMount.Secondary,
     };
 
     public static readonly List<WeaponDef> All = new List<WeaponDef> { BasicCannon, MRL };
+
+    /// <summary>Look up a weapon by id; null when the id is null/empty/unknown.</summary>
+    public static WeaponDef Find(string id)
+    {
+        if (string.IsNullOrEmpty(id)) return null;
+        foreach (var w in All)
+            if (w.id == id) return w;
+        return null;
+    }
 }
